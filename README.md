@@ -100,12 +100,24 @@ Last update: 19 Aug 2022
 
 ## 2022-08-17 on git linux kernel sources
 
-### Script revision 2022-08-17
-### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for dataset 1), 2x4TB disks 7.2krpm (for dataset 2), using XFS, running AlmaLinux 8.6
+### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
 ### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
 
 #### backup multiple git repo versions to local repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691430-d597ecd1-880e-474b-b015-27ed6a02c7ea.png)
+
+Numbers:
+| Operation      | bupstash 0.11.0 | borg 1.2.1 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.13.1 | restic\_beta 0.13.1-dev | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | ----------------------- | --------------- |
+| backup 1st run | 9               | 38         | 54                 | 9            | 22            | 24                      | 30              |
+| backup 2nd run | 13              | 19         | 23                 | 4            | 8             | 9                       | 12              |
+| backup 3rd run | 8               | 25         | 37                 | 7            | 16            | 17                      | 21              |
+| backup 4th run | 6               | 18         | 26                 | 6            | 13            | 13                      | 16              |
+| restore        | 3               | 15         | 17                 | 6            | 7             | 9                       | 17              |
+| size 1st run   | 213208          | 257256     | 259600             | 259788       | 1229540       | 260488                  | 360244          |
+| size 2nd run   | 375680          | 338796     | 341488             | 341088       | 1563592       | 343036                  | 480888          |
+| size 3rd run   | 538724          | 527808     | 532256             | 529804       | 2256348       | 532512                  | 723556          |
+| size 4th run   | 655712          | 660896     | 665864             | 666408       | 2732740       | 669124                  | 896312          |
 
 Remarks:
 - It seems that current stable restic version (without compression) uses huge amounts of disk space, hence the test with current restic beta that supports compression.
@@ -115,10 +127,26 @@ Remarks:
 #### backup multiple git repo versions to remote repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691444-b57ec8dc-9221-46d4-bbb6-94e1f6471d9e.png)
 
+Numbers:
+| Operation      | bupstash 0.11.0 | borg 1.2.1 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.13.1 | restic\_beta 0.13.1-dev | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | ----------------------- | --------------- |
+| backup 1st run | 22              | 44         | 63                 | 101          | 764           | 86                      | 116             |
+| backup 2nd run | 15              | 22         | 30                 | 59           | 229           | 33                      | 42              |
+| backup 3rd run | 16              | 32         | 47                 | 61           | 473           | 76                      | 76              |
+| backup 4th run | 13              | 25         | 35                 | 68           | 332           | 55                      | 53              |
+| restore        | 172             | 251        | 256                | 749          | 1451          | 722                     | 1238            |
+| size 1st run   | 250098          | 257662     | 259710             | 268300       | 1256836       | 262960                  | 378792          |
+| size 2nd run   | 443119          | 339276     | 341836             | 352507       | 1607666       | 346000                  | 505072          |
+| size 3rd run   | 633315          | 528738     | 532970             | 547279       | 2312586       | 536675                  | 756943          |
+| size 4th run   | 770074          | 661848     | 666848             | 688184       | 2801249       | 674189                  | 936291          |
+
 Remarks:
-- Very bad restore results can be observed across all backup solutions.
-- kopia, restic and duplicacy seem to not like SFTP, whereas borg and bupstash are advantaged since they run a ssh deamon on the target
-- It would be a good idea to setup kopia and restic HTTP servers and redo the remote repository tests
+- Very bad restore results can be observed across all backup solutions, we'll need to investigate this:
+    - Both links are monitored by dpinger, which shows no loss
+    - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
+- kopia, restic and duplicacy seem to not cope well SFTP, whereas borg and bupstash are advantaged since they run a ssh deamon on the target
+    - I have chosen to use SFTP to make sure ssh overhead is similar between all solutions
+    - It would be a good idea to setup kopia and restic HTTP servers and redo the remote repository tests
 
 #### Notes
 Disclaimers:
