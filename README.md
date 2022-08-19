@@ -98,7 +98,7 @@ Last update: 19 Aug 2022
 
 # Results
 
-## 2022-08-17 on git linux kernel sources
+## 2022-08-19 on git linux kernel sources
 
 ### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
 ### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
@@ -126,6 +126,9 @@ Remarks:
 -
 #### backup multiple git repo versions to remote repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691444-b57ec8dc-9221-46d4-bbb6-94e1f6471d9e.png)
+
+Remote repositories are SSH (+ binary) for bupstash and burp.
+Remote repositories are SFTP for kopia, restic and duplicacy.
 
 Numbers:
 | Operation      | bupstash 0.11.0 | borg 1.2.1 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.13.1 | restic\_beta 0.13.1-dev | duplicacy 2.7.2 |
