@@ -1,6 +1,8 @@
 # backup-bench
 Quick and dirty backup tool benchmark with reproductible results
 
+** This is a one page entry with benchmarks (see below), previous versions are available via git versionning.**
+
 ## What
 
 This repo aims to compare different backup solutions among:
@@ -18,7 +20,9 @@ This repo aims to compare different backup solutions among:
  I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
  Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second scale).
- 
+script assumes ssh port is reachable from source to target and vice verca.
+script assumes restic http and kopia http  ports are reachable form source to target (no auth is used in script, make sure you know what you are doing).
+
  While backups are done, cpu/memory/disk metrics are saved so we know how "ressource hungry" a backup program can be.
  
 All backup programs are setup to use SSH in order to compare their performance regardless of the storage backend.
@@ -39,10 +43,105 @@ As of today I use the script on my lab hypervisor, which runs AlmaLinux 8.6, so 
 I'll try to be as least biased as possible in order to make my backup tests.
 If you feel that I didn't give a specific program enough attention, feel free to open an issue.
 
+# In depth comparaison of backup solutions
+
+The following list might not be complete, you're welcome to provide PRs to update it ;)
+
+Last update: 19 Aug 2022
+
+|Backup software|Version|
+|------------------|--------|
+|borg|1.2.1|
+|borg beta|2.0.0b1|
+|restic|0.13.1|
+|restic beta|0.13.1-dev|
+|kopia|0.11.3|
+|bupstash|0.11.0|
+|duplicacy|2.7.2|
+
+|Goal|Functionnality|borg|restic|kopia|bupstash|duplicacy|
+|-----|---------------|-----|------|------|----------|-------|
+|Reliability|Redundant index copies| ?|?|Yes|?|?|
+|Reliability|Continue restore on bad blocks|?|?|?|?|?|
+|Reliability|Data checksumming|Yes (CRC & HMAC)|?|?|?|?|
+|Reliability|Language memory safety|No (python)|No (go)|No (go)|Yes (rust)|No (go)|
+|Restoring Data|Backup mounting as filesystem|?|Yes|?|No|?|
+|File management|File includes / excludes bases on regexes|?|?|?|?|?|
+|File management|Supports backup XATTRs|Yes|?|?|Yes|?|
+|File management|Supports backup ACLs|Yes|?|?|Yes|?|
+|File management|Automatically excludes CACHEDIR.TAG(3) directories|No|Yes|Yes|No|?|
+|Dedup & compression efficience|Is data compressed|Yes|No, available beta|Yes|Yes|
+|Dedup & compression efficience|Uses newer compression algorithms (ie zstd)|Yes|No, available in beta|Yes|Yes|Yes|
+|Dedup & compression efficience|Can files be excluded from compression|?|No|Yes|No|No|
+|Dedup & compression efficience|Is data deduplicatedd|Yes|No, available beta|Yes|Yes|
+|Platform support|Unix Prebuilt binaries|Yes|Yes|Yes|No|Yes|
+|Platform support|Windows support|Yes (WSL)|Yes|Yes|No|Yes|
+|Platform support|Windows first class support (PE32 binary)|No|Yes|Yes|No|Yes|
+|Platform support|Unix snapshot support where snapshot path prefix is removed|?|?|?|?|?|
+|Platform support|Windows VSS snapshot support where snapshot path prefix is removed|No|Yes|No|No|Yes|
+|WAN Support|Can backups be sent to a remote destination without keeping a local copy|Yes|Yes|Yes|Yes|Yes|
+|WAN Support|What other remote backends are supported ?|rclone|(1)|(2)|None|(1)|
+|WAN Support|Can the protocol pass UTM firewall appliances with layer 7 filter|Yes|Yes|Yes|Yes|Yes|
+|Security|Are encryption protocols sure (AES-256-GCM / PolyChaCha) ?|Yes|?|?|Yes|?|
+|Security|Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)?|?|?|?|?|?|
+|Security|Can a compromised client delete backups?|No (append mode)|?|?|No|?|
+|Security|Can a compromised client restore encrypted data?|Yes|?|?|No|Yes|
+|Security|Are pull backup scenarios possible?|Yes|No|?|?|?|
+|Misc|Does the backup software support pre/post execution hooks?|?|?|?|?|?|
+|Misc|Does the backup software provide an API ?|Yes (JSON cmd)|Yes (REST API)|?|No|No|
+|Misc|Does the backup sofware provide an automatic GFS system ?|Yes|No|Yes|No|?|
+|Misc|Does the backup sofware provide a crypto benchmark ?|No, available in beta|No|Yes|No|No|
+
+(1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google
+(2) SFTP/Google/S3/B2/rclone*
+(3) see https://bford.info/cachedir/
+
 # Results
 
-## 2022-08-17
+## 2022-08-17 on git linux kernel sources
 
 ### Script revision 2022-08-17
-### Source system: Xeon , 64GB RAM, 2x SSD 480GB (for dataset 1), 2x4TB disks 7.2krpm (for dataset 2), using XFS, running AlmaLinux 8.6
+### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for dataset 1), 2x4TB disks 7.2krpm (for dataset 2), using XFS, running AlmaLinux 8.6
 ### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
+
+#### backup multiple git repo versions to local repositories
+![image](https://user-images.githubusercontent.com/4681318/185691430-d597ecd1-880e-474b-b015-27ed6a02c7ea.png)
+
+Remarks:
+- It seems that current stable restic version (without compression) uses huge amounts of disk space, hence the test with current restic beta that supports compression.
+- kopia was the best allround performer on local backups when it comes to speed
+- bupstash was the most space efficient tool (beats borg beta by about 1MB)
+-
+#### backup multiple git repo versions to remote repositories
+![image](https://user-images.githubusercontent.com/4681318/185691444-b57ec8dc-9221-46d4-bbb6-94e1f6471d9e.png)
+
+Remarks:
+- Very bad restore results can be observed across all backup solutions.
+- kopia, restic and duplicacy seem to not like SFTP, whereas borg and bupstash are advantaged since they run a ssh deamon on the target
+- It would be a good idea to setup kopia and restic HTTP servers and redo the remote repository tests
+
+#### Notes
+Disclaimers:
+- The script has run on a lab server that hold about 10VMs. I've made sure that CPU/MEM/DISK WAIT stayed the same between all backup tests, nevertheless, some deviances may have occured while measuring.
+- Bandwidth between source and target is 1Gbit/s theoretically. Nevertheless, I've made a quick iperf3 test to make sure that bandwidth is available between both servers.
+
+`iperf3 -c targetfqdn` results
+```
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-10.00  sec   545 MBytes   457 Mbits/sec   23             sender
+[  5]   0.00-10.04  sec   544 MBytes   455 Mbits/sec                  receiver
+```
+`iperf3 -c targetfqdn -R` results
+```
+[ ID] Interval           Transfer     Bitrate         Retr
+[  5]   0.00-10.04  sec   530 MBytes   443 Mbits/sec  446             sender
+[  5]   0.00-10.00  sec   526 MBytes   442 Mbits/sec                  receiver
+```
+- Deterministic results cannot be achieved since too much external parameters come in when running the benchmarks. Nevertheless, the systems are monitored, and the tests were done when no cpu/ram/io spikes where present, and no bandwidth problem was detected.
+
+#### Other stuff
+
+On a personal note, I didn't really enjoy duplicacy because it tampers with the data to backup (adds .duplicacy folder) which has to be excluded from all other tools.
+The necessity to cd to the directory to backup/restore doesn't really enchant me to write scripts. Also, configuring one active repo wasn't easy to deal within the script.
+It has needed some good debugging time to get duplicacy to play nice with the rest of the script.
+
