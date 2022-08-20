@@ -67,18 +67,18 @@ Last update: 19 Aug 2022
 |Reliability|Language memory safety|No (python)|No (go)|No (go)|Yes (rust)|No (go)|
 |Restoring Data|Backup mounting as filesystem|?|Yes|?|No|?|
 |File management|File includes / excludes bases on regexes|?|?|?|?|?|
-|File management|Supports backup XATTRs|Yes|?|?|Yes|?|
-|File management|Supports backup ACLs|Yes|?|?|Yes|?|
+|File management|Supports backup XATTRs|Yes|?|No|Yes|?|
+|File management|Supports backup ACLs|Yes|?|No|Yes|?|
 |File management|Automatically excludes CACHEDIR.TAG(3) directories|No|Yes|Yes|No|?|
 |Dedup & compression efficience|Is data compressed|Yes|No, available beta|Yes|Yes|
 |Dedup & compression efficience|Uses newer compression algorithms (ie zstd)|Yes|No, available in beta|Yes|Yes|Yes|
 |Dedup & compression efficience|Can files be excluded from compression|?|No|Yes|No|No|
-|Dedup & compression efficience|Is data deduplicatedd|Yes|No, available beta|Yes|Yes|
+|Dedup & compression efficience|Is data deduplicated|Yes|No, available beta|Yes|Yes|
 |Platform support|Unix Prebuilt binaries|Yes|Yes|Yes|No|Yes|
 |Platform support|Windows support|Yes (WSL)|Yes|Yes|No|Yes|
 |Platform support|Windows first class support (PE32 binary)|No|Yes|Yes|No|Yes|
 |Platform support|Unix snapshot support where snapshot path prefix is removed|?|?|?|?|?|
-|Platform support|Windows VSS snapshot support where snapshot path prefix is removed|No|Yes|No|No|Yes|
+|Platform support|Windows VSS snapshot support where snapshot path prefix is removed|No|Yes|No, but pre-/post hook VSS script provided|No|Yes|
 |WAN Support|Can backups be sent to a remote destination without keeping a local copy|Yes|Yes|Yes|Yes|Yes|
 |WAN Support|What other remote backends are supported ?|rclone|(1)|(2)|None|(1)|
 |WAN Support|Can the protocol pass UTM firewall appliances with layer 7 filter|Yes|Yes|Yes|Yes|Yes|
@@ -87,7 +87,7 @@ Last update: 19 Aug 2022
 |Security|Can a compromised client delete backups?|No (append mode)|?|?|No|?|
 |Security|Can a compromised client restore encrypted data?|Yes|?|?|No|Yes|
 |Security|Are pull backup scenarios possible?|Yes|No|?|?|?|
-|Misc|Does the backup software support pre/post execution hooks?|?|?|?|?|?|
+|Misc|Does the backup software support pre/post execution hooks?|?|?|Yes|No|?|
 |Misc|Does the backup software provide an API ?|Yes (JSON cmd)|Yes (REST API)|?|No|No|
 |Misc|Does the backup sofware provide an automatic GFS system ?|Yes|No|Yes|No|?|
 |Misc|Does the backup sofware provide a crypto benchmark ?|No, available in beta|No|Yes|No|No|
