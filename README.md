@@ -32,7 +32,7 @@ As of the current tests, Borg v2.0.0-b4 also has a `borg benchmark cpu` option.
 ## Why
 
 I am currently using multiple backup programs to achieve my needs. As of today, I use Graham Keeling's burp https://github.com/grke/burp to backup windows machines, and borg backup to backup QEMU VM images. Graham decided to remove it's deduplication (protocol 2) and stick with rsync based backups (protocol 1), which isn't compatible with my backup strategies.
-I've also tried out bupstash which I found to be quite quick, but which produces bigger backups when dealing with small files (probably because of the chunk size?).
+I've also tried out bupstash which I found to be quite quick, but which produces bigger backups remotely when dealing with small files (probably because of the chunk size?).
 
 Anyway, I am searching for a good allrounder, so I decided to give all the deduplication backup solutions a try, and since I am configuring them all, I thought why not make my results available to anyone, with a script so everything can be reproduced easily.
 
@@ -42,8 +42,6 @@ I'll try to be as least biased as possible in order to make my backup tests.
 If you feel that I didn't give a specific program enough attention, feel free to open an issue.
 
 # In depth comparaison of backup solutions
-
-The following list might not be complete, you're welcome to provide PRs to update it ;)
 
 Last update: 19 Aug 2022
 
@@ -56,6 +54,8 @@ Last update: 19 Aug 2022
 |kopia|0.11.3|
 |bupstash|0.11.0|
 |duplicacy|2.7.2|
+
+The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it ;)
 
 |Goal|Functionnality|borg|restic|kopia|bupstash|duplicacy|
 |-----|---------------|-----|------|------|----------|-------|
@@ -176,6 +176,7 @@ Disclaimers:
 
 #### Other stuff
 
+Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
 On a personal note, I didn't really enjoy duplicacy because it tampers with the data to backup (adds .duplicacy folder) which has to be excluded from all other tools.
 The necessity to cd to the directory to backup/restore doesn't really enchant me to write scripts. Also, configuring one active repo wasn't easy to deal within the script.
 It has needed some good debugging time to get duplicacy to play nice with the rest of the script.
