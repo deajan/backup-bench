@@ -17,7 +17,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022081901
+PROGRAM_BUILD=2022082001
 
 source "./backup-bench.conf"
 
@@ -41,6 +41,7 @@ function clear_users {
 
 function setup_root_access {
 	# Quick and dirty ssh root setup on target sysetem when using remote repositories
+	# This allows the source machine to access target
 	ssh-keygen -b 2048 -t rsa -f /root/.ssh/backup-bench.rsa -q -N ""
 	cat /root/.ssh/backup-bench.rsa.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 	semanage fcontext -a -t ssh_home_t /root/.ssh/authorized_keys
@@ -67,11 +68,11 @@ function setup_target_remote_repos {
 			zfs create backup/"${backup_software}"
 			zfs set compression=off backup/"${backup_software}"
 		else
-			mkdir ${TARGET_ROOT} || exit 127
+			mkdir -p ${TARGET_ROOT} || exit 127
 		fi
 		useradd -d ${TARGET_ROOT}/"${backup_software}" -m -r -U "${backup_software}"_user
-		mkdir ${TARGET_ROOT}/"${backup_software}"/data
-		mkdir ${TARGET_ROOT}/"${backup_software}"/.ssh && chmod 700 ${TARGET_ROOT}/"${backup_software}"/.ssh
+		mkdir -p ${TARGET_ROOT}/"${backup_software}"/data
+		mkdir -p ${TARGET_ROOT}/"${backup_software}"/.ssh && chmod 700 ${TARGET_ROOT}/"${backup_software}"/.ssh
 		ssh-keygen -b 2048 -t rsa -f ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa -q -N ""
 		cat ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa.pub > ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys && chmod 600 ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
 		chown "${backup_software}"_user -R ${TARGET_ROOT}/"${backup_software}"
@@ -83,6 +84,8 @@ function setup_target_remote_repos {
 		if [ "$?" != 0 ]; then
 			echo "Failed to copy ssh key to source system"
 			echo "Please copy file \"${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa\" to source system in \"${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key\" and execute chmod 600 \"${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key\""
+		else
+			rm -f /tmp/$PROGRAM.ctrlm.%r@%h.$$
 		fi
 	done
 }
@@ -219,10 +222,10 @@ function clear_borg_repository {
 	Logger "Clearing borg repository. Remote: ${remotely}." "NOTICE"
 	# borg expects the data directory to already exist in order to serve it via borg --serve
 	if [ "${remotely}" == true ]; then
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir \"${TARGET_ROOT}/borg/data\" && chown borg_user \"${TARGET_ROOT}/borg/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\" && chown borg_user \"${TARGET_ROOT}/borg/data\""
 		$REMOTE_SSH_RUNNER $cmd
 	else
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir \"${TARGET_ROOT}/borg/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\""
 		eval "${cmd}"
 	fi
 }
@@ -233,10 +236,10 @@ function clear_borg_beta_repository {
 	Logger "Clearing borg_beta repository. Remote: ${remotely}." "NOTICE"
 	# borg expects the data directory to already exist in order to serve it via borg --serve
 	if [ "${remotely}" == true ]; then
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir \"${TARGET_ROOT}/borg_beta/data\" && chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\" && chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\""
 		$REMOTE_SSH_RUNNER $cmd
 	else
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir \"${TARGET_ROOT}/borg_beta/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\""
 		eval "${cmd}"
 	fi
 
@@ -436,10 +439,10 @@ function clear_duplicacy_repository {
 
 	Logger "Clearing duplicacy repository. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir \"${TARGET_ROOT}/duplicacy/data\" && chown duplicacy_user \"${TARGET_ROOT}/duplicacy/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\" && chown duplicacy_user \"${TARGET_ROOT}/duplicacy/data\""
 		$REMOTE_SSH_RUNNER $cmd
 	else
-		cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir \"${TARGET_ROOT}/duplicacy/data\""
+		cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\""
 		eval "${cmd}"
 	fi
 	# We also need to delete .duplicacy folder in source
@@ -450,7 +453,7 @@ function setup_git_dataset {
 	dnf install -y git
 	# We'll assume that BACKUP_ROOT will be a git root, so we need to git clone in parent directory
 	git_parent_dir="$(dirname ${BACKUP_ROOT:?})"
-	[ ! -d "${git_parent_dir}" ] && mkdir "${git_parent_dir}"
+	[ ! -d "${git_parent_dir}" ] && mkdir -p "${git_parent_dir}"
 	cd "${git_parent_dir}" || exit 127
 
 	[ -d "${GIT_ROOT_DIRECTORY}" ] && rm -rf "${GIT_ROOT_DIRECTORY}"
@@ -818,6 +821,7 @@ function init_repositories {
 	local remotely="${1:-false}"
 	local git="${2:-false}"
 
+	# The only reason we need to setup our dataset before being able to init the backup repositories is because duplicacy needs an existing source dir to init it's repo...
 	[ "${git}" == true ] && setup_git_dataset
 
 	Logger "Initializing reposiories. Remote: ${remotely}." "NOTICE"
@@ -913,7 +917,7 @@ function benchmark_restore_standard {
 		[ "${remotely}" == true ] && $REMOTE_SSH_RUNNER "echo 3 > /proc/sys/vm/drop_caches"
 
 		[ -d "${RESTORE_DIR}" ] && rm -rf "${RESTORE_DIR:?}"
-		mkdir "${RESTORE_DIR}"
+		mkdir -p "${RESTORE_DIR}"
 
 		Logger "Starting restore bench of ${backup_software} tag ${backup_id}" "NOTICE"
 		seconds_begin=$SECONDS
