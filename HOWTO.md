@@ -67,6 +67,9 @@ Again, you can run multiple backup iterations with:
 ./backup-bench.sh --benchmarks --remote --git
 ```
 
+> :warning:
+> duplicity benchmarks will fail if you do initialize repositories locally and try remote backup benchmarks or vice verca.
+
 ## Remote benchmarks using alternative backends
 
 There is a work in progress to support restic and kopia http servers, which have not been tested yet.
