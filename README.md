@@ -20,8 +20,6 @@ This repo aims to compare different backup solutions among:
  I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
  Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second scale).
-script assumes ssh port is reachable from source to target and vice verca.
-script assumes restic http and kopia http  ports are reachable form source to target (no auth is used in script, make sure you know what you are doing).
 
  While backups are done, cpu/memory/disk metrics are saved so we know how "ressource hungry" a backup program can be.
  
@@ -98,10 +96,15 @@ Last update: 19 Aug 2022
 
 # Results
 
-## 2022-08-19 on git linux kernel sources
+## 2022-08-19
 
 ### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
 ### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
+
+#### source data
+
+Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
+Initial git directory totals 4.1GB, for 5039 directories and 76951 files.
 
 #### backup multiple git repo versions to local repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691430-d597ecd1-880e-474b-b015-27ed6a02c7ea.png)
@@ -123,7 +126,7 @@ Remarks:
 - It seems that current stable restic version (without compression) uses huge amounts of disk space, hence the test with current restic beta that supports compression.
 - kopia was the best allround performer on local backups when it comes to speed
 - bupstash was the most space efficient tool (beats borg beta by about 1MB)
--
+
 #### backup multiple git repo versions to remote repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691444-b57ec8dc-9221-46d4-bbb6-94e1f6471d9e.png)
 
@@ -150,6 +153,7 @@ Remarks:
 - kopia, restic and duplicacy seem to not cope well SFTP, whereas borg and bupstash are advantaged since they run a ssh deamon on the target
     - I have chosen to use SFTP to make sure ssh overhead is similar between all solutions
     - It would be a good idea to setup kopia and restic HTTP servers and redo the remote repository tests
+- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, probably because of some chunking algorithm that changes chuck sizes depending on transfer rate or so ? That could be discussed by the solution's developers.
 
 #### Notes
 Disclaimers:
