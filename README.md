@@ -19,7 +19,7 @@ This repo aims to compare different backup solutions among:
  We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and igoring .git directory).
  I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
- Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second scale).
+ Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
 
  While backups are done, cpu/memory/disk metrics are saved so we know how "ressource hungry" a backup program can be.
  
@@ -27,7 +27,7 @@ All backup programs are setup to use SSH in order to compare their performance r
 
 When available, we'll tune the encryption algorithm depending on the results of a benchmark. For instance, kopia has a `kopia benchmark compression --data-file=/some/big/data/file` option to find out which compression / crypto works best on the current architecture.
 This is *A REALLY NICE TO HAVE* when choices need to be made, aware of current architecture.
-As of the current tests, Borg v2.0.0-b4 also has a `borg benchmark cpu` option.
+As of the current tests, Borg v2.0.0-b1 also has a `borg benchmark cpu` option.
 
 ## Why
 
