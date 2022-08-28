@@ -7,11 +7,11 @@ Quick and dirty backup tool benchmark with reproductible results
 
 This repo aims to compare different backup solutions among:
 
- - borg backup
- - bupstash
- - restic
- - kopia
- - duplicacy
+ - [borg backup](https://www.borgbackup.org)
+ - [bupstash](https://bupstash.io)
+ - [restic](https://restic.net)
+ - [kopia](https://www.kopia.io)
+ - [duplicacy](https://duplicacy.com)
  - your tool (PRs to support new backup tools are welcome)
  
  The idea is to have a script that executes all backup programs on the same datasets.
