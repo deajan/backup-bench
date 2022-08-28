@@ -57,13 +57,13 @@ Last update: 19 Aug 2022
 
 The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it ;)
 
-|Goal|Functionnality|borg|restic|kopia|bupstash|duplicacy|
+|Goal|Functionality|borg|restic|kopia|bupstash|duplicacy|
 |-----|---------------|-----|------|------|----------|-------|
 |Reliability|Redundant index copies| ?|?|Yes|?|?|
 |Reliability|Continue restore on bad blocks|?|?|?|?|?|
 |Reliability|Data checksumming|Yes (CRC & HMAC)|?|?|?|?|
 |Reliability|Language memory safety|No (python)|No (go)|No (go)|Yes (rust)|No (go)|
-|Restoring Data|Backup mounting as filesystem|?|Yes|?|No|?|
+|Restoring Data|Backup mounting as filesystem|Yes|Yes|Yes|No|?|
 |File management|File includes / excludes bases on regexes|?|?|?|?|?|
 |File management|Supports backup XATTRs|Yes|?|No|Yes|?|
 |File management|Supports backup ACLs|Yes|?|No|Yes|?|
