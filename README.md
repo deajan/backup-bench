@@ -7,11 +7,11 @@ Quick and dirty backup tool benchmark with reproductible results
 
 This repo aims to compare different backup solutions among:
 
- - borg backup
- - bupstash
- - restic
- - kopia
- - duplicacy
+ - [borg backup](https://www.borgbackup.org)
+ - [bupstash](https://bupstash.io)
+ - [restic](https://restic.net)
+ - [kopia](https://www.kopia.io)
+ - [duplicacy](https://duplicacy.com)
  - your tool (PRs to support new backup tools are welcome)
  
  The idea is to have a script that executes all backup programs on the same datasets.
@@ -19,7 +19,7 @@ This repo aims to compare different backup solutions among:
  We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and igoring .git directory).
  I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
- Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second scale).
+ Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
 
  While backups are done, cpu/memory/disk metrics are saved so we know how "ressource hungry" a backup program can be.
  
@@ -27,12 +27,12 @@ All backup programs are setup to use SSH in order to compare their performance r
 
 When available, we'll tune the encryption algorithm depending on the results of a benchmark. For instance, kopia has a `kopia benchmark compression --data-file=/some/big/data/file` option to find out which compression / crypto works best on the current architecture.
 This is *A REALLY NICE TO HAVE* when choices need to be made, aware of current architecture.
-As of the current tests, Borg v2.0.0-b4 also has a `borg benchmark cpu` option.
+As of the current tests, Borg v2.0.0-b1 also has a `borg benchmark cpu` option.
 
 ## Why
 
 I am currently using multiple backup programs to achieve my needs. As of today, I use Graham Keeling's burp https://github.com/grke/burp to backup windows machines, and borg backup to backup QEMU VM images. Graham decided to remove it's deduplication (protocol 2) and stick with rsync based backups (protocol 1), which isn't compatible with my backup strategies.
-I've also tried out bupstash which I found to be quite quick, but which produces bigger backups when dealing with small files (probably because of the chunk size?).
+I've also tried out bupstash which I found to be quite quick, but which produces bigger backups remotely when dealing with small files (probably because of the chunk size?).
 
 Anyway, I am searching for a good allrounder, so I decided to give all the deduplication backup solutions a try, and since I am configuring them all, I thought why not make my results available to anyone, with a script so everything can be reproduced easily.
 
@@ -42,8 +42,6 @@ I'll try to be as least biased as possible in order to make my backup tests.
 If you feel that I didn't give a specific program enough attention, feel free to open an issue.
 
 # In depth comparaison of backup solutions
-
-The following list might not be complete, you're welcome to provide PRs to update it ;)
 
 Last update: 19 Aug 2022
 
@@ -57,13 +55,15 @@ Last update: 19 Aug 2022
 |bupstash|0.11.0|
 |duplicacy|2.7.2|
 
-|Goal|Functionnality|borg|restic|kopia|bupstash|duplicacy|
+The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it ;)
+
+|Goal|Functionality|borg|restic|kopia|bupstash|duplicacy|
 |-----|---------------|-----|------|------|----------|-------|
 |Reliability|Redundant index copies| ?|?|Yes|?|?|
 |Reliability|Continue restore on bad blocks|?|?|?|?|?|
 |Reliability|Data checksumming|Yes (CRC & HMAC)|?|?|?|?|
 |Reliability|Language memory safety|No (python)|No (go)|No (go)|Yes (rust)|No (go)|
-|Restoring Data|Backup mounting as filesystem|?|Yes|?|No|?|
+|Restoring Data|Backup mounting as filesystem|Yes|Yes|Yes|No|?|
 |File management|File includes / excludes bases on regexes|?|?|?|?|?|
 |File management|Supports backup XATTRs|Yes|?|No|Yes|?|
 |File management|Supports backup ACLs|Yes|?|No|Yes|?|
@@ -104,7 +104,7 @@ Last update: 19 Aug 2022
 #### source data
 
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
-Initial git directory totals 4.1GB, for 5039 directories and 76951 files.
+Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
 
 #### backup multiple git repo versions to local repositories
 ![image](https://user-images.githubusercontent.com/4681318/185691430-d597ecd1-880e-474b-b015-27ed6a02c7ea.png)
@@ -176,6 +176,7 @@ Disclaimers:
 
 #### Other stuff
 
+Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
 On a personal note, I didn't really enjoy duplicacy because it tampers with the data to backup (adds .duplicacy folder) which has to be excluded from all other tools.
 The necessity to cd to the directory to backup/restore doesn't really enchant me to write scripts. Also, configuring one active repo wasn't easy to deal within the script.
 It has needed some good debugging time to get duplicacy to play nice with the rest of the script.
