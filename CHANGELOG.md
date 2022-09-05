@@ -5,6 +5,8 @@
 - Added kopia HTTP backend
   - Added RSA certificate generator
 - Added restic HTTP backend
+- Added new --config parameter to load different config files
+- Increased backup benchmark timeout from 5 to 10 hours
 
 # version 2022081901
 
