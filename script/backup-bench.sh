@@ -17,9 +17,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022082001
-
-source "./backup-bench.conf"
+PROGRAM_BUILD=2022090501
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -30,6 +28,29 @@ function self_setup {
 	source "${ofunctions_path}" || exit 99
 	# Don't polluate RUN_DIR since we won't need alerts
 	_LOGGER_WRITE_PARTIAL_LOGS=false
+}
+
+function get_lastest_git_release {
+	local org="${1}"
+	local repo="${2}"
+
+	LATEST_VERSION=$(curl -s https://api.github.com/repos/${org}/${repo}/releases/latest | grep "tag_name" | cut -d'"' -f4)
+	echo ${LATEST_VERSION}
+}
+
+function get_certificate_fingerprint {
+	# Used for kopia server certificate authentication
+	local fqdn="${1}"
+	local port="${2}"
+
+	echo $(openssl s_client -connect ${fqdn}:${port} < /dev/null 2>/dev/null | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin | cut -d'=' -f2 | tr -d ':')
+}
+
+function create_certificate {
+	# Create a RSA certificate for kopia
+	local name="${1}"
+
+	openssl req -nodes -new -x509 -days 7300 -newkey rsa:2048 -keyout "${HOME}/${name}.key" -subj "/C=FR/O=SOMEORG/CN=FQDN/OU=RD/L=City/ST=State/emailAddress=contact@example.tld" -out "${HOME}/${name}.crt"
 }
 
 function clear_users {
@@ -93,11 +114,13 @@ function setup_target_remote_repos {
 function install_bupstash {
 	local version="${1}"
 
-	Logger "Installing bupstash" "NOTICE"
+	lastest_version=$(get_lastest_git_release andrewchambers bupstash)
+
+	Logger "Installing bupstash ${lastest_version}" "NOTICE"
 	dnf install -y rust cargo pkgconfig libsodium-devel tar
-	mkdir -p /opt/bupstash/bupstash-v"${version}" && cd /opt/bupstash/bupstash-v"${version}" || exit 127
-	curl -OL https://github.com/andrewchambers/bupstash/releases/download/v"${version}"/bupstash-v"${version}"-src+deps.tar.gz
-	tar xvf bupstash-v"${version}"-src+deps.tar.gz
+	mkdir -p /opt/bupstash/bupstash-"${lastest_version}" && cd /opt/bupstash/bupstash-"${lastest_version}" || exit 127
+	curl -OL https://github.com/andrewchambers/bupstash/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz
+	tar xvf bupstash-"${lastest_version}"-src+deps.tar.gz
 	cargo build --release
 	cp target/release/bupstash /usr/local/bin/
 
@@ -147,11 +170,18 @@ function clear_bupstash_repository {
 
 function install_borg {
 
-	Logger "Installing borg" "NOTICE"
-	dnf install -y libacl-devel openssl-devel gcc-c++
-	dnf -y install python39 python39-devel
-	python3.9 -m pip install --upgrade pip setuptools wheel
-	python3.9 -m pip install borgbackup
+	lastest_version=$(get_lastest_git_release borgbackup borg)
+
+	Logger "Installing borg ${lastest_version}" "NOTICE"
+
+	# Earlier borg backup install commands
+	#dnf install -y libacl-devel openssl-devel gcc-c++
+	#dnf -y install python39 python39-devel
+	#python3.9 -m pip install --upgrade pip setuptools wheel
+	#python3.9 -m pip install borgbackup
+
+	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.38
+	curl -o /usr/local/bin/borg -L https://github.com/borgbackup/borg/releases/download/${lastest_version}/borg-linuxold64 && chmod 755 /usr/local/bin/borg
 
 	Logger "Installed borg $(get_version_borg)" "NOTICE"
 }
@@ -246,19 +276,27 @@ function clear_borg_beta_repository {
 }
 
 function install_kopia {
+	lastest_version=$(get_lastest_git_release kopia kopia)
+
 	Logger "Installing kopia" "NOTICE"
 
-	rpm --import https://kopia.io/signing-key
-	cat <<EOF | sudo tee /etc/yum.repos.d/kopia.repo
-[Kopia]
-name=Kopia
-baseurl=http://packages.kopia.io/rpm/stable/\$basearch/
-gpgcheck=1
-enabled=1
-gpgkey=https://kopia.io/signing-key
-EOF
+#	Former kopia install instructions
+#	rpm --import https://kopia.io/signing-key
+#	cat <<EOF | sudo tee /etc/yum.repos.d/kopia.repo
+#[Kopia]
+#name=Kopia
+#baseurl=http://packages.kopia.io/rpm/stable/\$basearch/
+#gpgcheck=1
+#enabled=1
+#gpgkey=https://kopia.io/signing-key
+#EOF
+#
+#	dnf install -y kopia
 
-	dnf install -y kopia
+	curl -OL https://github.com/kopia/kopia/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz
+	tar xvf kopia-${lastest_version:1}-linux-x64.tar.gz
+	cp kopia-${lastest_version:1}-linux-x64/kopia /usr/local/bin/kopia
+	chmod +x /usr/local/bin/kopia
 
 	Logger "Installed kopia $(get_version_kopia)" "NOTICE"
 }
@@ -275,7 +313,13 @@ function init_kopia_repository {
 		# This should be executed on the source system
 
 		# Set default encryption and hash algorithm based on what kopia benchmark crypto provided
-		kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
+		if [ "${KOPIA_USE_HTTP}" == true ]; then
+			# HTTP server requres a created repostory on the target before we can connect to it, but when using HTTP, the repo is initialized when running the server
+			# $REMOTE_SSH_RUNNER kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}
+		else
+			kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
+		fi
 	else
 		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
 	fi
@@ -302,9 +346,22 @@ function clear_kopia_repository {
 }
 
 function install_restic {
-	Logger "Installing restic" "NOTICE"
-	dnf install -y epel-release
-	dnf install -y restic
+	lastest_version=$(get_lastest_git_release restic restic)
+
+	Logger "Installing restic ${lastest_version}" "NOTICE"
+
+	# Former restic install instructions
+	#dnf install -y epel-release
+	#dnf install -y restic
+	dnf install -y bzip2
+
+	echo curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
+	curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
+	bzip2 -d restic_${lastest_version:1}_linux_amd64.bz2
+	alias cp=cp; cp restic_${lastest_version:1}_linux_amd64 /usr/local/bin/restic
+	chmod +x /usr/local/bin/restic
+
+
 	Logger "Installed restic $(get_version_restic)" "NOTICE"
 }
 
@@ -313,36 +370,27 @@ function get_version_restic {
 }
 
 function install_restic_rest_server {
-	Logger "Installing restic rest-server" "NOTICE"
-	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/v0.11.0/rest-server_0.11.0_linux_amd64.tar.gz
+	lastest_version=$(get_lastest_git_release restic restic)
+
+	Logger "Installing restic rest-server ${lastest_version}" "NOTICE"
+	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz
 	tar xvf /tmp/rest-server.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rest-server'
 	chmod +x /usr/local/bin/rest-server
-}
-
-function install_restic_beta {
-	Logger "Installing restic beta" "NOTICE"
-	curl -o /usr/local/bin/restic_beta -L https://beta.restic.net/latest_restic_linux_amd64 && chmod +x /usr/local/bin/restic_beta
-	Logger "Installed restic_beta $(get_version_restic_beta)" "NOTICE"
-}
-
-function get_version_restic_beta {
-	echo "$(restic_beta version | awk '{print $2}')"
 }
 
 function init_restic_repository {
 	local remotely="${1:-false}"
 
-
 	Logger "Initializing restic repository. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		# This should be executed on the source system
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ init
+			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ init --repository-version 2
 		else
-			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init
+			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
 		fi
 	else
-		restic -r ${TARGET_ROOT}/restic/data init
+		restic -r ${TARGET_ROOT}/restic/data init --repository-version 2
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
@@ -363,44 +411,13 @@ function clear_restic_repository {
 	fi
 }
 
-function init_restic_beta_repository {
-	local remotely="${1:-false}"
-
-	Logger "Initializing restic_beta repository. Remote: ${remotely}." "NOTICE"
-	if [ "${remotely}" == true ]; then
-		# This should be executed on the source system
-		if [ "${RESTIC_BETA_USE_HTTP}" == true ]; then
-			restic_beta -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_BETA_HTTP_PORT}/ init --repository-version 2
-		else
-			restic_beta -r sftp::${TARGET_ROOT}/restic_beta/data -o sftp.command="ssh restic_beta_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic_beta.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
-		fi
-	else
-		restic_beta -r ${TARGET_ROOT}/restic_beta/data init --repository-version 2
-	fi
-	result=$?
-	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
-		exit 125
-	fi
-}
-
-function clear_restic_beta_repository {
-	local remotely="${1:-false}"
-
-	Logger "Clearing restic_beta repository. Remote: ${remotely}." "NOTICE"
-	cmd="rm -rf \"${TARGET_ROOT:?}/restic_beta/data\""
-	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
-	else
-		eval "${cmd}"
-	fi
-}
-
 function install_duplicacy {
 	local version="${1}"
 
-	Logger "Installing duplicacy" "NOTICE"
-	curl -L -o /usr/local/bin/duplicacy https://github.com/gilbertchen/duplicacy/releases/download/v"${version}"/duplicacy_linux_x64_"${version}"
+	lastest_version=$(get_lastest_git_release gilbertchen duplicacy)
+
+	Logger "Installing duplicacy ${lastest_version}" "NOTICE"
+	curl -L -o /usr/local/bin/duplicacy https://github.com/gilbertchen/duplicacy/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}"
 	chmod +x /usr/local/bin/duplicacy
 	Logger "Installed duplicacy (${version})" "NOTICE"
 }
@@ -625,21 +642,19 @@ function backup_restic {
 
 	Logger "Initializing restic backup. Remote: ${remotely}." "NOTICE"
 
-	# I know that RESTIC_REPOSITORY exists, but there was no way I could get that to work with sftp port different to 22, so I had to specificy repository manually
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		else
-			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		fi
 	else
-		restic -r ${TARGET_ROOT}/restic/data backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+		restic -r ${TARGET_ROOT}/restic/data backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
 	fi
-	# We can check the exclusion patterns with restic backup --dry-run --verbose
 }
 
 function restore_restic {
@@ -659,51 +674,6 @@ function restore_restic {
 	else
 		id=$(restic -r ${TARGET_ROOT}/restic/data snapshots | grep "${backup_id}" | awk '{print $1}')
 		restic -r ${TARGET_ROOT}/restic/data restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
-	fi
-	result=$?
-	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
-	fi
-}
-
-function backup_restic_beta {
-	local remotely="${1}"
-	local backup_id="${2}"
-
-	Logger "Initializing restic_beta backup. Remote: ${remotely}." "NOTICE"
-
-	if [ "${remotely}" == true ]; then
-		if [ "${RESTIC_BETA_USE_HTTP}" == true ]; then
-			restic_beta -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_BETA_HTTP_PORT}/ --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_beta_tests.log 2>&1
-		else
-			restic_beta -r sftp::${TARGET_ROOT}/restic_beta/data -o sftp.command="ssh restic_beta_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic_beta.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_beta_tests.log 2>&1
-		fi
-	else
-		restic_beta -r ${TARGET_ROOT}/restic_beta/data backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_beta_tests.log 2>&1
-	fi
-	result=$?
-	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
-	fi
-}
-
-function restore_restic_beta {
-	local remotely="${1}"
-	local backup_id="${2}"
-
-	Logger "Initializing restic_beta restore. Remote: ${remotely}." "NOTICE"
-
-	if [ "${remotely}" == true ]; then
-		if [ "${RESTIC_BETA_USE_HTTP}" == true ]; then
-			id=$(restic_beta -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_BETA_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $1}')
-			restic_beta -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_BETA_HTTP_PORT}/ restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
-		else
-			id=$(restic_beta -r sftp::${TARGET_ROOT}/restic_beta/data -o sftp.command="ssh restic_beta_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic_beta.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $1}')
-			restic_beta -r sftp::${TARGET_ROOT}/restic_beta/data -o sftp.command="ssh restic_beta_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic_beta.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
-		fi
-	else
-		id=$(restic_beta -r ${TARGET_ROOT}/restic_beta/data snapshots | grep "${backup_id}" | awk '{print $1}')
-		restic_beta -r ${TARGET_ROOT}/restic_beta/data restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
@@ -781,11 +751,12 @@ function setup_source {
 	install_borg_beta
 	install_kopia
 	install_restic
-	install_restic_beta
 	install_duplicacy ${DUPLICACY_VERSION}
 
-	Logger "Setting up local target" "NOTICE"
-	[ "${remotely}" == false ] && setup_target_local_repos
+	if [ "${remotely}" == false ]; then
+		Logger "Setting up local target" "NOTICE"
+		setup_target_local_repos
+	fi
 }
 
 function setup_remote_target {
@@ -805,6 +776,8 @@ function setup_remote_target {
 	setup_ssh_bupstash_server
 
 	setup_ssh_borg_server
+
+	create_certificate kopia
 }
 
 function clear_repositories {
@@ -832,15 +805,20 @@ function init_repositories {
 }
 
 function serve_http_targets {
-	kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --insecure --without-password &
-	pid=$?
+	kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+	export KOPIA_SERVER_CONTROL_USER='masteruser'
+	export KOPIA_SERVER_CONTROL_PASSWORD='SOMEOTHERPASSWORD'
+	kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file="${HOME}/kopia.crt" --tls-key-file="${HOME}/kopia.key" &
+	pid=$!
+	# add acls for user
+	kopia server users add ${KOPIA_HTTP_USERNAME} --user-password=${KOPIA_HTTP_PASSWORD}
+	# reload server
+	kopia server refresh --addres https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT})
 	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid. Kill server with 'kill -9 $pid'" "NOTICE"
-	./rest-server --no-auth --listen ${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data &
-	pid=$?
+	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data &
+	pid=$!
 	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid. Kill server with 'kill -9 $pid'" "NOTICE"
-	./rest-server --no-auth --listen ${RESTIC_BETA_HTTP_PORT} --path ${TARGET_ROOT}/restic_beta/data &
-	pid=$?
-	Logger "Serving rest-serve for restic_beta on http port ${RESTIC_BETA_HTTP_PORT} using pid $pid. Kill server with 'kill -9 $pid'" "NOTICE"
+	echo ""  # Just clear the line at the end
 }
 
 function benchmark_backup_standard {
@@ -857,7 +835,7 @@ function benchmark_backup_standard {
 		seconds_begin=$SECONDS
 		# Launch backup software from function "name"_backup as background so we keep control
 		backup_"${backup_software}" "${remotely}" "${backup_id}" &
-		ExecTasks "$!" "${backup_software}_bench" false 3600 18000 3600 18000
+		ExecTasks "$!" "${backup_software}_bench" false 3600 36000 3600 36000
 		exec_time=$((SECONDS - seconds_begin))
 		CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time},"
 		Logger "It took ${exec_time} seconds to backup." "NOTICE"
@@ -979,11 +957,12 @@ function usage {
 	echo "$PROGRAM $PROGRAM_BUILD"
 	echo "$AUTHOR"
 	echo ""
-	echo "Please open the file and adjust variables until #### END OF CONF #### line is reached"
-	echo "Once you've setup this script, you may use it to initialize target, than source."
+	echo "Please setup your config file (defaults to backup-bench.conf"
+	echo "Once you've setup the configuration, you may use it to initialize target, then source."
 	echo "After initialization, benchmarks may run"
 	echo ""
-	echo "--setup-target-remote	     	Install backup programs and setup SSH access (executed on target)"
+	echo "--config=/path/to/file.conf       Alternative configuration file"
+	echo "--setup-remote-target	     	Install backup programs and setup SSH access (executed on target)"
 	echo "--setup-source            	Install backup programs and setup local (or remote with --remote) repositories (executed on source)"
 	echo "--init-repos	        	Reinitialize local (or remote with --remote) repositories after clearing. Must be used with --git if multiple version benchmarks is used) (executed on source)"
 	echo "--benchmark-backup		Run backup benchmarks using local (or remote with --remote) repositories"
@@ -1000,7 +979,8 @@ function usage {
 	echo "--clear-repos	       		Removes data from local (or remote with --remote) repositories"
 	echo ""
 	echo "DEBUG commands"
-	echo "--setup-root-access       Manually setup root access (executed on target)"
+	echo "--setup-root-access               Manually setup root access (executed on target)"
+	echo "--serve-http-targets              Launch http servers for kopia and restic manually"
 	exit 128
 }
 
@@ -1017,9 +997,13 @@ cmd=""
 REMOTELY=false
 USE_GIT_VERSIONS=false
 ALL=false
+CONFIG_FILE="backup-bench.conf"
 
 for i in "${@}"; do
 	case "$i" in
+		--config=*)
+		CONFIG_FILE="${i##*=}"
+		;;
 		--setup-root-access)
 		cmd="setup_root_access"
 		;;
@@ -1064,6 +1048,12 @@ for i in "${@}"; do
 		;;
 	esac
 done
+
+# Load configuration file
+Logger "Using configuration file ${CONFIG_FILE}" "NOTICE"
+source "${CONFIG_FILE}"
+
+
 if [ "${ALL}" == true ]; then
 	# prepare repos and run all tests locally and remotely
 	clear_repositories
