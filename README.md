@@ -174,3 +174,13 @@ Remarks:
 - Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
 - duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
 - The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me,
+
+## Links
+
+As of 6 September 2022, I've posted an issue to every backup program's git asking if they could review this benchmark repo:
+
+- bupstash: https://github.com/andrewchambers/bupstash/issues/335
+- restic: https://github.com/restic/restic/issues/3917
+- borg: https://github.com/borgbackup/borg/issues/7007
+- duplicacy: https://github.com/gilbertchen/duplicacy/issues/635
+- kopia: https://github.com/kopia/kopia/issues/2375
