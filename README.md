@@ -43,14 +43,13 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparaison of backup solutions
 
-Last update: 19 Aug 2022
+Last update: 06 Sept 2019
 
 |Backup software|Version|
 |------------------|--------|
-|borg|1.2.1|
+|borg|1.2.2|
 |borg beta|2.0.0b1|
-|restic|0.13.1|
-|restic beta|0.13.1-dev|
+|restic|0.14.0|
 |kopia|0.11.3|
 |bupstash|0.11.0|
 |duplicacy|2.7.2|
@@ -62,16 +61,16 @@ The following list is my personal shopping list when it comes to backup solution
 |Reliability|Redundant index copies| ?|?|Yes|?|?|
 |Reliability|Continue restore on bad blocks|?|?|?|?|?|
 |Reliability|Data checksumming|Yes (CRC & HMAC)|?|?|?|?|
-|Reliability|Language memory safety|No (python)|No (go)|No (go)|Yes (rust)|No (go)|
 |Restoring Data|Backup mounting as filesystem|Yes|Yes|Yes|No|?|
 |File management|File includes / excludes bases on regexes|?|?|?|?|?|
 |File management|Supports backup XATTRs|Yes|?|No|Yes|?|
 |File management|Supports backup ACLs|Yes|?|No|Yes|?|
 |File management|Automatically excludes CACHEDIR.TAG(3) directories|No|Yes|Yes|No|?|
-|Dedup & compression efficience|Is data compressed|Yes|No, available beta|Yes|Yes|
-|Dedup & compression efficience|Uses newer compression algorithms (ie zstd)|Yes|No, available in beta|Yes|Yes|Yes|
+|Dedup & compression efficience|Is data compressed|Yes|Yes|Yes|Yes|
+|Dedup & compression efficience|Uses newer compression algorithms (ie zstd)|Yes|Yes|Yes|Yes|Yes|
 |Dedup & compression efficience|Can files be excluded from compression|?|No|Yes|No|No|
-|Dedup & compression efficience|Is data deduplicated|Yes|No, available beta|Yes|Yes|
+|Dedup & compression efficience|Is data deduplicated|Yes|Yes|Yes|Yes|Yes|
+|Platform support|Programming lang|Python|Go|Go|Rust|Go|
 |Platform support|Unix Prebuilt binaries|Yes|Yes|Yes|No|Yes|
 |Platform support|Windows support|Yes (WSL)|Yes|Yes|No|Yes|
 |Platform support|Windows first class support (PE32 binary)|No|Yes|Yes|No|Yes|
@@ -82,7 +81,7 @@ The following list is my personal shopping list when it comes to backup solution
 |WAN Support|Can the protocol pass UTM firewall appliances with layer 7 filter|Yes|Yes|Yes|Yes|Yes|
 |Security|Are encryption protocols sure (AES-256-GCM / PolyChaCha) ?|Yes|?|?|Yes|?|
 |Security|Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)?|?|?|?|?|?|
-|Security|Can a compromised client delete backups?|No (append mode)|?|?|No|?|
+|Security|Can a compromised client delete backups?|No (append mode)|?|?|No (backup only keys)|?|
 |Security|Can a compromised client restore encrypted data?|Yes|?|?|No|Yes|
 |Security|Are pull backup scenarios possible?|Yes|No|?|?|?|
 |Misc|Does the backup software support pre/post execution hooks?|?|?|Yes|No|?|
