@@ -17,7 +17,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022090501
+PROGRAM_BUILD=2022090601
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -34,16 +34,22 @@ function get_lastest_git_release {
 	local org="${1}"
 	local repo="${2}"
 
-	LATEST_VERSION=$(curl -s https://api.github.com/repos/${org}/${repo}/releases/latest | grep "tag_name" | cut -d'"' -f4)
-	echo ${LATEST_VERSION}
+	LASTEST_VERSION=$(curl -s https://api.github.com/repos/${org}/${repo}/releases/latest | grep "tag_name" | cut -d'"' -f4)
+	echo ${LASTEST_VERSION}
 }
 
-function get_certificate_fingerprint {
+function get_remote_certificate_fingerprint {
 	# Used for kopia server certificate authentication
 	local fqdn="${1}"
 	local port="${2}"
 
 	echo $(openssl s_client -connect ${fqdn}:${port} < /dev/null 2>/dev/null | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin | cut -d'=' -f2 | tr -d ':')
+}
+
+function get_certificate_fingerprint {
+	local file="${1}"
+
+	echo $(openssl x509 -fingerprint -sha256 -noout -in "${file}" | cut -d'=' -f2 | tr -d ':')
 }
 
 function create_certificate {
@@ -101,6 +107,7 @@ function setup_target_remote_repos {
 		restorecon -v ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
 	done
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+		Logger "Copying RSA key for ${backup_software} to source into [${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key]" "NOTICE"
 		cat "${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa" | ssh ${SOURCE_USER}@${SOURCE_FQDN} -p ${SOURCE_SSH_PORT} -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=/tmp/$PROGRAM.ctrlm.%r@%h.$$ "cat > ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key"
 		if [ "$?" != 0 ]; then
 			echo "Failed to copy ssh key to source system"
@@ -132,7 +139,7 @@ function get_version_bupstash {
 }
 
 function setup_ssh_bupstash_server {
-	echo "$(echo -n 'command="cd ${TARGET_ROOT}/bupstash; bupstash serve ${TARGET_ROOT}/bupstash/data",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc '; cat ${TARGET_ROOT}/bupstash/.ssh/authorized_keys)" > ${TARGET_ROOT}/bupstash/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/bupstash; bupstash serve ${TARGET_ROOT}/bupstash/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/bupstash/.ssh/authorized_keys)" > ${TARGET_ROOT}/bupstash/.ssh/authorized_keys
 	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o ${SOURCE_USER_HOMEDIR}/bupstash.master.key
 	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k ${SOURCE_USER_HOMEDIR}/bupstash.master.key --put --list -o ${SOURCE_USER_HOMEDIR}/bupstash.store.key
 }
@@ -201,11 +208,11 @@ function get_version_borg_beta {
 }
 
 function setup_ssh_borg_server {
-	echo "$(echo -n 'command="cd ${TARGET_ROOT}/borg/data; borg serve --restrict-to-path ${TARGET_ROOT}/borg/data",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc '; cat ${TARGET_ROOT}/borg/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg/data; borg serve --restrict-to-path ${TARGET_ROOT}/borg/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/borg/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg/.ssh/authorized_keys
 }
 
 function setup_ssh_borg_beta_server {
-	echo "$(echo -n 'command="cd ${TARGET_ROOT}/borg_beta/data; borg_beta serve --restrict-to-path ${TARGET_ROOT}/borg_beta/data",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc '; cat ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg_beta/data; borg_beta serve --restrict-to-path ${TARGET_ROOT}/borg_beta/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys
 }
 
 function init_borg_repository {
@@ -314,23 +321,27 @@ function init_kopia_repository {
 
 		# Set default encryption and hash algorithm based on what kopia benchmark crypto provided
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
-			# HTTP server requres a created repostory on the target before we can connect to it, but when using HTTP, the repo is initialized when running the server
-			# $REMOTE_SSH_RUNNER kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
-			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}
+			# When using HTTP, remote repository needs to exist before launching the server, hence it is created by serve_http function
+			export KOPIA_PASSWORD=  # We need to clean KOPIA_PASSWORD else policy set will fail
+			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}  --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
+			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression zstd
+			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --add-ignore '.git' --add-ignore '.duplicacy'
 		else
 			kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
+			kopia policy set --global --compression zstd
+			kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 		fi
 	else
 		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overrided.
+		kopia policy set --global --compression zstd
+		kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
 		exit 125
 	fi
-	# Set default zstd compression for *ALL* repositories. Can be overrided.
-	kopia policy set --global --compression zstd
-	kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 }
 
 function clear_kopia_repository {
@@ -370,7 +381,7 @@ function get_version_restic {
 }
 
 function install_restic_rest_server {
-	lastest_version=$(get_lastest_git_release restic restic)
+	lastest_version=$(get_lastest_git_release restic rest-server)
 
 	Logger "Installing restic rest-server ${lastest_version}" "NOTICE"
 	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz
@@ -604,7 +615,12 @@ function backup_kopia {
 	Logger "Initializing kopia backup. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
-		kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+		if [ "${KOPIA_USE_HTTP}" == true ]; then
+			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD} --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
+			export KOPIA_PASSWORD= # if not cleaned, kopia snapshot will fail
+		else
+			kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+		fi
 	else
 		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
 	fi
@@ -624,7 +640,12 @@ function restore_kopia {
 	Logger "Initializing kopia restore. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
-		kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+		if [ "${KOPIA_USE_HTTP}" == true ]; then
+			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD} --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
+			export KOPIA_PASSWORD= # if not cleaned, kopia restore will fail
+		else
+			kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+		fi
 	else
 		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
 	fi
@@ -644,7 +665,7 @@ function backup_restic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		else
 			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		fi
@@ -776,6 +797,7 @@ function setup_remote_target {
 	setup_ssh_bupstash_server
 
 	setup_ssh_borg_server
+	setup_ssh_borg_beta_server
 
 	create_certificate kopia
 }
@@ -805,20 +827,31 @@ function init_repositories {
 }
 
 function serve_http_targets {
-	kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
-	export KOPIA_SERVER_CONTROL_USER='masteruser'
-	export KOPIA_SERVER_CONTROL_PASSWORD='SOMEOTHERPASSWORD'
-	kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file="${HOME}/kopia.crt" --tls-key-file="${HOME}/kopia.key" &
+	[ ! -f "${TARGET_ROOT}/kopia/data/kopia.repository.f" ] && kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+	cmd="kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file=\"${HOME}/kopia.crt\" --tls-key-file=\"${HOME}/kopia.key\""
+	Logger "Running kopia server with following command:\n$cmd" "NOTICE"
+	eval $cmd &
 	pid=$!
 	# add acls for user
-	kopia server users add ${KOPIA_HTTP_USERNAME} --user-password=${KOPIA_HTTP_PASSWORD}
+	cmd="kopia server users add ${KOPIA_HTTP_USERNAME}@backup-bench-source --user-password=${KOPIA_HTTP_PASSWORD}"
+	eval $cmd
+	Logger "Adding kopia user woth following command:\n$cmd" "NOTICE"
 	# reload server
-	kopia server refresh --addres https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT})
-	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid. Kill server with 'kill -9 $pid'" "NOTICE"
+	cmd="kopia server refresh --address https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint "${HOME}/kopia.crt")  --server-control-username=${KOPIA_SERVER_CONTROL_USER} --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD}"
+	Logger "Running kopia refresh with following command:\n$cmd" "NOTICE"
+	sleep 2 # arbitrary wait time
+	eval $cmd &
+	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid." "NOTICE"
 	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data &
 	pid=$!
-	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid. Kill server with 'kill -9 $pid'" "NOTICE"
+	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid." "NOTICE"
+	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
 	echo ""  # Just clear the line at the end
+}
+
+function stop_serve_http_targets {
+	for i in $(pgrep kopia); do kill $i; done
+	for i in $(pgrep rest-server); do kill $i; done
 }
 
 function benchmark_backup_standard {
@@ -909,7 +942,7 @@ function benchmark_restore_standard {
 		# Make sure restored version matches current version
 		Logger "Compare restored version to original directory" "NOTICE"
 		# borg and restic restore full paths, so we need to change restored path
-		if [ "${backup_software}" == "borg" ] || [ "${backup_software}" == "borg_beta" ] || [ "${backup_software}" == "restic" ] || [ "${backup_software}" == "restic_beta" ]; then
+		if [ "${backup_software}" == "borg" ] || [ "${backup_software}" == "borg_beta" ] || [ "${backup_software}" == "restic" ]; then
 			restored_path="${RESTORE_DIR}"/"${BACKUP_ROOT}/"
 		else
 			restored_path="${RESTORE_DIR}"
@@ -965,6 +998,8 @@ function usage {
 	echo "--setup-remote-target	     	Install backup programs and setup SSH access (executed on target)"
 	echo "--setup-source            	Install backup programs and setup local (or remote with --remote) repositories (executed on source)"
 	echo "--init-repos	        	Reinitialize local (or remote with --remote) repositories after clearing. Must be used with --git if multiple version benchmarks is used) (executed on source)"
+	echo "--serve-http-targets              Launch http servers for kopia and restic manually"
+	echo "--stop-http-targets               Stop http servers for kopia and restic"
 	echo "--benchmark-backup		Run backup benchmarks using local (or remote with --remote) repositories"
 	echo "--benchmark-restore		Run restore benchmarks using local (or remote with --remote) repositories, restores to local restore path"
 	echo "--benchmarks	        	Run both backup and restore benchmark using local (or remote with --remote) repositories and local restore path"
@@ -980,7 +1015,6 @@ function usage {
 	echo ""
 	echo "DEBUG commands"
 	echo "--setup-root-access               Manually setup root access (executed on target)"
-	echo "--serve-http-targets              Launch http servers for kopia and restic manually"
 	exit 128
 }
 
@@ -1015,6 +1049,9 @@ for i in "${@}"; do
 		;;
 		--serve-http-targets)
 		cmd="serve_http_targets"
+		;;
+		--stop-http-targets)
+		cmd="stop_serve_http_targets"
 		;;
 		--benchmarks)
 		cmd="benchmarks"
