@@ -1,7 +1,7 @@
 # backup-bench
-Quick and dirty backup tool benchmark with reproductible results
+Quick and dirty backup tool benchmark with reproducible results
 
-** This is a one page entry with benchmarks (see below), previous versions are available via git versionning.**
+** This is a one page entry with benchmarks (see below), previous versions are available via git versioning.**
 
 ## What
 
@@ -16,32 +16,32 @@ This repo aims to compare different backup solutions among:
  
  The idea is to have a script that executes all backup programs on the same datasets.
  
- We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and igoring .git directory).
+ We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and ignoring .git directory).
  I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
  Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
 
- While backups are done, cpu/memory/disk metrics are saved so we know how "ressource hungry" a backup program can be.
+ While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
  
 All backup programs are setup to use SSH in order to compare their performance regardless of the storage backend.
 
 When available, we'll tune the encryption algorithm depending on the results of a benchmark. For instance, kopia has a `kopia benchmark compression --data-file=/some/big/data/file` option to find out which compression / crypto works best on the current architecture.
-This is *A REALLY NICE TO HAVE* when choices need to be made, aware of current architecture.
+This is *REALLY NICE TO HAVE* when choices need to be made, aware of current architecture.
 As of the current tests, Borg v2.0.0-b1 also has a `borg benchmark cpu` option.
 
 ## Why
 
-I am currently using multiple backup programs to achieve my needs. As of today, I use Graham Keeling's burp https://github.com/grke/burp to backup windows machines, and borg backup to backup QEMU VM images. Graham decided to remove it's deduplication (protocol 2) and stick with rsync based backups (protocol 1), which isn't compatible with my backup strategies.
+I am currently using multiple backup programs to achieve my needs. As of today, I use Graham Keeling's burp https://github.com/grke/burp to backup windows machines, and borg backup to backup QEMU VM images. Graham decided to remove its deduplication (protocol 2) and stick with rsync based backups (protocol 1), which isn't compatible with my backup strategies.
 I've also tried out bupstash which I found to be quite quick, but which produces bigger backups remotely when dealing with small files (probably because of the chunk size?).
 
-Anyway, I am searching for a good allrounder, so I decided to give all the deduplication backup solutions a try, and since I am configuring them all, I thought why not make my results available to anyone, with a script so everything can be reproduced easily.
+Anyway, I am searching for a good allrounder, so I decided to give all the deduplicating backup solutions a try, and since I am configuring them all, I thought why not make my results available to anyone, with a script so everything can be reproduced easily.
 
 As of today I use the script on my lab hypervisor, which runs AlmaLinux 8.6, so my script has not been tailored to fit other distros (help is welcome).
 
-I'll try to be as least biased as possible in order to make my backup tests.
+I'll try to be as little biased as possible when doing my backup tests.
 If you feel that I didn't give a specific program enough attention, feel free to open an issue.
 
-# In depth comparaison of backup solutions
+# In depth comparison of backup solutions
 
 Last update: 06 Sept 2019
 
@@ -54,7 +54,7 @@ Last update: 06 Sept 2019
 |bupstash|0.11.0|
 |duplicacy|2.7.2|
 
-The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it ;)
+The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it. ;)
 
 | **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
 |------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
@@ -125,9 +125,9 @@ Numbers:
 | size 4th run   | 655764          | 660808     | 665692             | 666396       | 668840        | 895192          |
 
 Remarks:
- - kopia was the best allround performer on local backups when it comes to speed, but is quite CPU intensive
- - bupstash was the most space efficient tool (beats borg beta by about 1MB), and is not CPU hungry
- - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs
+ - kopia was the best allround performer on local backups when it comes to speed, but is quite CPU intensive.
+ - bupstash was the most space efficient tool (beats borg beta by about 1MB), and is not CPU hungry.
+ - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs.
  
 #### backup multiple git repo versions to remote repositories
 
@@ -154,16 +154,16 @@ Numbers:
 
 Remarks:
 - Very bad restore results can be observed across all backup solutions (except restic), we'll need to investigate this:
-    - Both links are monitored by dpinger, which shows no loss
+    - Both links are monitored by dpinger, which shows no loss.
     - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
-- Since [last benchmark series](RESULTS-20220819.md), I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved
-    - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly
-	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate
+- Since [last benchmark series](RESULTS-20220819.md), I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved.
+    - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly.
+	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate.
 - Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
-    - I must add HTTPS encryption so we can compare what's comparable
-    - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories
-- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26
-    - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I Think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories
+    - I must add HTTPS encryption so we can compare what's comparable.
+    - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories.
+- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26 .
+    - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories.
 
 ## EARLIER RESULTS
 
@@ -173,7 +173,7 @@ Remarks:
 
 - Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
 - duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
-- The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me,
+- The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me.
 
 ## Links
 
