@@ -131,22 +131,23 @@ Remarks:
  
 #### backup multiple git repo versions to remote repositories
 
-Remote repositories are SSH (+ binary) for bupstash and burp.
-Remote repositories is SFTP for duplicacy.
-Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
-Remote repository is HTTP for restic (rest-server 0.11.0)
+- Remote repositories are SSH (+ binary) for bupstash and burp.
+- Remote repositories is SFTP for duplicacy.
+- Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
+- Remote repository is HTTP for restic (rest-server 0.11.0)
+- [Update] I've also redone the same tests in HTTPS with `--insecure-tls` which is documented on restic docs but not visible when using `restic --help`.
 
-![image](https://user-images.githubusercontent.com/4681318/188726891-7020f98b-4958-43fe-b505-404f74b3b4ed.png)
+![image](https://user-images.githubusercontent.com/4681318/188742959-cb114ccd-0f03-47df-a07c-1d31ae8853a7.png)
 
 Numbers:
 
 | Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
-| backup 1st run | 23              | 62         | 64                 | 1186         | 25            | 107             |
-| backup 2nd run | 16              | 25         | 29                 | 292          | 10            | 44              |
-| backup 3rd run | 19              | 37         | 48                 | 904          | 21            | 60              |
-| backup 4th run | 15              | 29         | 36                 | 800          | 14            | 47              |
-| restore        | 161             | 255        | 269                | 279          | 24            | 1217            |
+| backup 1st run | 23              | 62         | 64                 | 1186         | 17            | 107             |
+| backup 2nd run | 16              | 25         | 29                 | 292          | 9             | 44              |
+| backup 3rd run | 19              | 37         | 48                 | 904          | 14            | 60              |
+| backup 4th run | 15              | 29         | 36                 | 800          | 11            | 47              |
+| restore        | 161             | 255        | 269                | 279          | 20            | 1217            |
 | size 1st run   | 250012          | 257534     | 260090             | 257927       | 262816        | 382572          |
 | size 2nd run   | 443008          | 339276     | 341704             | 339181       | 346264        | 508655          |
 | size 3rd run   | 633083          | 528482     | 532710             | 526723       | 536403        | 761362          |
@@ -160,10 +161,11 @@ Remarks:
     - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly.
 	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate.
 - Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
-    - I must add HTTPS encryption so we can compare what's comparable.
+    - I must add HTTPS encryption so we can compare what's comparable. [UPDATE]: Done, same results + or - a couple of seconds, table and image is updated
     - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories.
 - Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26 .
     - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories.
+
 
 ## EARLIER RESULTS
 

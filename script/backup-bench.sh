@@ -17,7 +17,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022090601
+PROGRAM_BUILD=2022090602
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -396,7 +396,7 @@ function init_restic_repository {
 	if [ "${remotely}" == true ]; then
 		# This should be executed on the source system
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ init --repository-version 2
+			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ init --repository-version 2
 		else
 			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
 		fi
@@ -665,7 +665,7 @@ function backup_restic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		else
 			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		fi
@@ -686,8 +686,8 @@ function restore_restic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			id=$(restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $1}')
-			restic -r rest:http://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			id=$(restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $1}')
+			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
 		else
 			id=$(restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $1}')
 			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
@@ -799,7 +799,7 @@ function setup_remote_target {
 	setup_ssh_borg_server
 	setup_ssh_borg_beta_server
 
-	create_certificate kopia
+	create_certificate https_backup-bench
 }
 
 function clear_repositories {
@@ -828,7 +828,7 @@ function init_repositories {
 
 function serve_http_targets {
 	[ ! -f "${TARGET_ROOT}/kopia/data/kopia.repository.f" ] && kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
-	cmd="kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file=\"${HOME}/kopia.crt\" --tls-key-file=\"${HOME}/kopia.key\""
+	cmd="kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file=\"${HOME}/https_backup-bench.crt\" --tls-key-file=\"${HOME}/https_backup-bench.key\""
 	Logger "Running kopia server with following command:\n$cmd" "NOTICE"
 	eval $cmd &
 	pid=$!
@@ -837,12 +837,12 @@ function serve_http_targets {
 	eval $cmd
 	Logger "Adding kopia user woth following command:\n$cmd" "NOTICE"
 	# reload server
-	cmd="kopia server refresh --address https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint "${HOME}/kopia.crt")  --server-control-username=${KOPIA_SERVER_CONTROL_USER} --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD}"
+	cmd="kopia server refresh --address https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint "${HOME}/https_backup-bench.crt")  --server-control-username=${KOPIA_SERVER_CONTROL_USER} --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD}"
 	Logger "Running kopia refresh with following command:\n$cmd" "NOTICE"
 	sleep 2 # arbitrary wait time
 	eval $cmd &
 	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid." "NOTICE"
-	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data &
+	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/kopia.key" & # WIP rename certificate to something less used
 	pid=$!
 	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid." "NOTICE"
 	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
