@@ -52,10 +52,19 @@ The target machine will connect to your source server to upload the ssh keys nec
 Once this is setup, the target cannot connect to source anymore.
 
 Once this is done, the source machine can use the uploaded ssh keys to connect to the remote repositories on the target system.
-You can then run the benchmarks with
+You can then prepare the benchmarks with
 
 ```
 ./backup-bench.sh --clear-repos --remote
+```
+
+Optional step if using kopia / restic HTTP servers, on target:
+```
+./backup-bench.sh --serve-http-targets
+```
+
+On source
+```
 ./backup-bench.sh --init-repos --remote
 ./backup-bench.sh --benchmarks --remote
 ```
@@ -63,6 +72,14 @@ You can then run the benchmarks with
 Again, you can run multiple backup iterations with:
 ```
 ./backup-bench.sh --clear-repos --remote
+```
+
+Optional step if using kopia / restic HTTP servers, on target:
+```
+./backup-bench.sh --serve-http-targets
+```
+
+```
 ./backup-bench.sh --init-repos --remote --git
 ./backup-bench.sh --benchmarks --remote --git
 ```
