@@ -156,7 +156,7 @@ Remarks:
 - Very bad restore results can be observed across all backup solutions (except restic), we'll need to investigate this:
     - Both links are monitored by dpinger, which shows no loss
     - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
-- Since last benchmark series, I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved
+- Since [last benchmark series](RESULTS-20220819.md), I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved
     - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly
 	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate
 - Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
@@ -164,6 +164,10 @@ Remarks:
     - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories
 - Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26
     - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I Think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories
+
+## EARLIER RESULTS
+
+[2022-08-19](RESULTS-20220819.md)
  
 #### Other stuff
 
