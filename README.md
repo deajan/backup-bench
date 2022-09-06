@@ -95,7 +95,7 @@ The following list is my personal shopping list when it comes to backup solution
 
 # Results
 
-## 2022-08-19
+## 2022-09-06
 
 ### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
 ### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
@@ -105,78 +105,64 @@ The following list is my personal shopping list when it comes to backup solution
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
 Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
 
+Note: I removed restic_beta benchmark since restic 0.14.0 with compression support is officially released.
+
 #### backup multiple git repo versions to local repositories
-![image](https://user-images.githubusercontent.com/4681318/185691430-d597ecd1-880e-474b-b015-27ed6a02c7ea.png)
 
 Numbers:
-| Operation      | bupstash 0.11.0 | borg 1.2.1 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.13.1 | restic\_beta 0.13.1-dev | duplicacy 2.7.2 |
-| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | ----------------------- | --------------- |
-| backup 1st run | 9               | 38         | 54                 | 9            | 22            | 24                      | 30              |
-| backup 2nd run | 13              | 19         | 23                 | 4            | 8             | 9                       | 12              |
-| backup 3rd run | 8               | 25         | 37                 | 7            | 16            | 17                      | 21              |
-| backup 4th run | 6               | 18         | 26                 | 6            | 13            | 13                      | 16              |
-| restore        | 3               | 15         | 17                 | 6            | 7             | 9                       | 17              |
-| size 1st run   | 213208          | 257256     | 259600             | 259788       | 1229540       | 260488                  | 360244          |
-| size 2nd run   | 375680          | 338796     | 341488             | 341088       | 1563592       | 343036                  | 480888          |
-| size 3rd run   | 538724          | 527808     | 532256             | 529804       | 2256348       | 532512                  | 723556          |
-| size 4th run   | 655712          | 660896     | 665864             | 666408       | 2732740       | 669124                  | 896312          |
+| Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
+| backup 1st run | 9               | 38         | 54                 | 9            | 23            | 30              |
+| backup 2nd run | 13              | 21         | 25                 | 4            | 9             | 14              |
+| backup 3rd run | 9               | 29         | 39                 | 7            | 18            | 24              |
+| backup 4th run | 6               | 21         | 29                 | 5            | 13            | 16              |
+| restore        | 3               | 17         | 16                 | 6            | 10            | 16              |
+| size 1st run   | 213220          | 257224     | 259512             | 259768       | 260588        | 360160          |
+| size 2nd run   | 375712          | 338792     | 341096             | 341060       | 343356        | 480392          |
+| size 3rd run   | 538768          | 527716     | 531980             | 529788       | 532216        | 722420          |
+| size 4th run   | 655764          | 660808     | 665692             | 666396       | 668840        | 895192          |
 
 Remarks:
-- It seems that current stable restic version (without compression) uses huge amounts of disk space, hence the test with current restic beta that supports compression.
-- kopia was the best allround performer on local backups when it comes to speed
-- bupstash was the most space efficient tool (beats borg beta by about 1MB)
-
+ - kopia was the best allround performer on local backups when it comes to speed, but is quite CPU intensive
+ - bupstash was the most space efficient tool (beats borg beta by about 1MB), and is not CPU hungry
+ - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs
+ 
 #### backup multiple git repo versions to remote repositories
-![image](https://user-images.githubusercontent.com/4681318/185691444-b57ec8dc-9221-46d4-bbb6-94e1f6471d9e.png)
 
 Remote repositories are SSH (+ binary) for bupstash and burp.
-Remote repositories are SFTP for kopia, restic and duplicacy.
+Remote repositories is SFTP for duplicacy.
+Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
+Remote repository is HTTP for restic (rest-server 0.11.0)
 
 Numbers:
-| Operation      | bupstash 0.11.0 | borg 1.2.1 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.13.1 | restic\_beta 0.13.1-dev | duplicacy 2.7.2 |
-| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | ----------------------- | --------------- |
-| backup 1st run | 22              | 44         | 63                 | 101          | 764           | 86                      | 116             |
-| backup 2nd run | 15              | 22         | 30                 | 59           | 229           | 33                      | 42              |
-| backup 3rd run | 16              | 32         | 47                 | 61           | 473           | 76                      | 76              |
-| backup 4th run | 13              | 25         | 35                 | 68           | 332           | 55                      | 53              |
-| restore        | 172             | 251        | 256                | 749          | 1451          | 722                     | 1238            |
-| size 1st run   | 250098          | 257662     | 259710             | 268300       | 1256836       | 262960                  | 378792          |
-| size 2nd run   | 443119          | 339276     | 341836             | 352507       | 1607666       | 346000                  | 505072          |
-| size 3rd run   | 633315          | 528738     | 532970             | 547279       | 2312586       | 536675                  | 756943          |
-| size 4th run   | 770074          | 661848     | 666848             | 688184       | 2801249       | 674189                  | 936291          |
+
+| Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
+| backup 1st run | 23              | 62         | 64                 | 1186         | 25            | 107             |
+| backup 2nd run | 16              | 25         | 29                 | 292          | 10            | 44              |
+| backup 3rd run | 19              | 37         | 48                 | 904          | 21            | 60              |
+| backup 4th run | 15              | 29         | 36                 | 800          | 14            | 47              |
+| restore        | 161             | 255        | 269                | 279          | 24            | 1217            |
+| size 1st run   | 250012          | 257534     | 260090             | 257927       | 262816        | 382572          |
+| size 2nd run   | 443008          | 339276     | 341704             | 339181       | 346264        | 508655          |
+| size 3rd run   | 633083          | 528482     | 532710             | 526723       | 536403        | 761362          |
+| size 4th run   | 769681          | 661720     | 666588             | 662558       | 673989        | 941247          |
 
 Remarks:
 - Very bad restore results can be observed across all backup solutions, we'll need to investigate this:
     - Both links are monitored by dpinger, which shows no loss
     - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
-- kopia, restic and duplicacy seem to not cope well SFTP, whereas borg and bupstash are advantaged since they run a ssh deamon on the target
-    - I have chosen to use SFTP to make sure ssh overhead is similar between all solutions
-    - It would be a good idea to setup kopia and restic HTTP servers and redo the remote repository tests
-- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, probably because of some chunking algorithm that changes chuck sizes depending on transfer rate or so ? That could be discussed by the solution's developers.
-
-#### Notes
-Disclaimers:
-- The script has run on a lab server that hold about 10VMs. I've made sure that CPU/MEM/DISK WAIT stayed the same between all backup tests, nevertheless, some deviances may have occured while measuring.
-- Bandwidth between source and target is 1Gbit/s theoretically. Nevertheless, I've made a quick iperf3 test to make sure that bandwidth is available between both servers.
-
-`iperf3 -c targetfqdn` results
-```
-[ ID] Interval           Transfer     Bitrate         Retr
-[  5]   0.00-10.00  sec   545 MBytes   457 Mbits/sec   23             sender
-[  5]   0.00-10.04  sec   544 MBytes   455 Mbits/sec                  receiver
-```
-`iperf3 -c targetfqdn -R` results
-```
-[ ID] Interval           Transfer     Bitrate         Retr
-[  5]   0.00-10.04  sec   530 MBytes   443 Mbits/sec  446             sender
-[  5]   0.00-10.00  sec   526 MBytes   442 Mbits/sec                  receiver
-```
-- Deterministic results cannot be achieved since too much external parameters come in when running the benchmarks. Nevertheless, the systems are monitored, and the tests were done when no cpu/ram/io spikes where present, and no bandwidth problem was detected.
-
+- Since last benchmark series, I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved
+    - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly
+	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate
+- Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
+    - I must add HTTPS encryption so we can compare what's comparable
+	- Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories
+- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26
+    - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I Think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories
+ 
 #### Other stuff
 
-Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
-On a personal note, I didn't really enjoy duplicacy because it tampers with the data to backup (adds .duplicacy folder) which has to be excluded from all other tools.
-The necessity to cd to the directory to backup/restore doesn't really enchant me to write scripts. Also, configuring one active repo wasn't easy to deal within the script.
-It has needed some good debugging time to get duplicacy to play nice with the rest of the script.
-
+- Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
+- duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
+- The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me,
