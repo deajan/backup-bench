@@ -109,6 +109,8 @@ Note: I removed restic_beta benchmark since restic 0.14.0 with compression suppo
 
 #### backup multiple git repo versions to local repositories
 
+![image](https://user-images.githubusercontent.com/4681318/188726855-2813d297-3349-4849-9ac7-c58caa58a72d.png)
+
 Numbers:
 | Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
@@ -134,6 +136,8 @@ Remote repositories is SFTP for duplicacy.
 Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
 Remote repository is HTTP for restic (rest-server 0.11.0)
 
+![image](https://user-images.githubusercontent.com/4681318/188726891-7020f98b-4958-43fe-b505-404f74b3b4ed.png)
+
 Numbers:
 
 | Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
@@ -149,7 +153,7 @@ Numbers:
 | size 4th run   | 769681          | 661720     | 666588             | 662558       | 673989        | 941247          |
 
 Remarks:
-- Very bad restore results can be observed across all backup solutions, we'll need to investigate this:
+- Very bad restore results can be observed across all backup solutions (except restic), we'll need to investigate this:
     - Both links are monitored by dpinger, which shows no loss
     - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
 - Since last benchmark series, I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved
@@ -157,7 +161,7 @@ Remarks:
 	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate
 - Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
     - I must add HTTPS encryption so we can compare what's comparable
-	- Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories
+    - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories
 - Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26
     - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I Think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories
  
