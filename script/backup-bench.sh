@@ -365,21 +365,23 @@ function init_kopia_repository {
 		# This should be executed on the source system
 
 		# Set default encryption and hash algorithm based on what kopia benchmark crypto provided
+		# As per https://github.com/kopia/kopia/issues/2375, we'll set compression to s2-default
+
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
 			# When using HTTP, remote repository needs to exist before launching the server, hence it is created by serve_http function
 			export KOPIA_PASSWORD=  # We need to clean KOPIA_PASSWORD else policy set will fail
 			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}  --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
-			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression zstd
+			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression s2-default
 			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --add-ignore '.git' --add-ignore '.duplicacy'
 		else
 			kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
-			kopia policy set --global --compression zstd
+			kopia policy set --global --compression s2-default
 			kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 		fi
 	else
 		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
 		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overrided.
-		kopia policy set --global --compression zstd
+		kopia policy set --global --compression s2-default
 		kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 	fi
 	result=$?
