@@ -36,7 +36,7 @@ I've also tried out bupstash which I found to be quite quick, but which produces
 
 Anyway, I am searching for a good allrounder, so I decided to give all the deduplicating backup solutions a try, and since I am configuring them all, I thought why not make my results available to anyone, with a script so everything can be reproduced easily.
 
-As of today I use the script on my lab hypervisor, which runs AlmaLinux 8.6, so my script has not been tailored to fit other distros (help is welcome).
+As of today I use the script on my lab hypervisor, which runs AlmaLinux 8.6. The script should run on other distros, although I didn't test it.
 
 I'll try to be as little biased as possible when doing my backup tests.
 If you feel that I didn't give a specific program enough attention, feel free to open an issue.
