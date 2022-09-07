@@ -43,7 +43,7 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 06 Sept 2019
+Last update: 07 Sept 2019
 
 |Backup software|Version|
 |------------------|--------|
