@@ -88,6 +88,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No            |
+| **Misc**                           | Can a repo be synchronized to another repo ?                             | ?                     | ?              | Yes                                        | Yes                   | Yes           |
 
 - (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
 - (2) SFTP/Google Cloud/S3 and S3-compatible storage like Wasabi/B2/Azure/WebDav/rclone*
