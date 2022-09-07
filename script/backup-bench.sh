@@ -17,7 +17,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022090602
+PROGRAM_BUILD=2022090701
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -842,7 +842,7 @@ function serve_http_targets {
 	sleep 2 # arbitrary wait time
 	eval $cmd &
 	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid." "NOTICE"
-	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/kopia.key" & # WIP rename certificate to something less used
+	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
 	pid=$!
 	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid." "NOTICE"
 	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
