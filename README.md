@@ -59,7 +59,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
 |------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
 | **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | ?                     | ?             |
-| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | ?                                          | ?                     | ?             |
+| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | ?                     | ?             |
 | **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | ?                                          | ?                     | ?             |
 | **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | ?             |
 | **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | ?             |
@@ -68,7 +68,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **File management**                | Automatically excludes CACHEDIR.TAG(3) directories                       | No                    | Yes            | Yes                                        | No                    | ?             |
 | **Dedup & compression efficience** | Is data compressed                                                       | Yes                   | Yes            | Yes                                        | Yes                   | Yes|
 | **Dedup & compression efficience** | Uses newer compression algorithms (ie zstd)                              | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
-| **Dedup & compression efficience** | Can files be excluded from compression by extension (i                   | ?                     | No             | Yes                                        | No                    | No            |
+| **Dedup & compression efficience** | Can files be excluded from compression by extension                      | ?                     | No             | Yes                                        | No                    | No            |
 | **Dedup & compression efficience** | Is data deduplicated                                                     | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **Platform support**               | Programming lang                                                         | Python                | Go             | Go                                         | Rust                  | Go            |
 | **Platform support**               | Unix Prebuilt binaries                                                   | Yes                   | Yes            | Yes                                        | No                    | Yes           |
@@ -78,19 +78,19 @@ The following list is my personal shopping list when it comes to backup solution
 | **Platform support**               | Windows VSS snapshot support where snapshot path prefix is removed       | No                    | Yes            | No, but pre-/post hook VSS script provided | No                    | Yes           |
 | **WAN Support**                    | Can backups be sent to a remote destination without keeping a local copy | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **WAN Support**                    | What other remote backends are supported ?                               | rclone                | (1)            | (2)                                        | None                  | (1)           |
-| **Security**                       | Are encryption protocols sure (AES-256-GCM / PolyChaCha / etc ) ?        | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM                           | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
+| **Security**                       | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ?      | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM or Chacha20Poly1305       | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
 | **Security**                       | Are metadatas encrypted too ?                                            | ?                     | ?              | ?                                          | Yes                   | ?             |
 | **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | ?                     | ?              | ?                                          | ?                     | ?             |
-| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | ?                                          | No (backup only keys) | ?             |
+| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | Supports optional object locking           | No (backup only keys) | ?             |
 | **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | Yes           |
-| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | ?                                          | ?                     | ?             |
+| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | ?                     | ?             |
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | No                    | No            |
 
-(1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google
-(2) SFTP/Google/S3/B2/rclone*
+(1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
+(2) SFTP/Google Cloud/S3 and S3-compatible storage like Wasabi/B2/Azure/WebDav/rclone*
 (3) see https://bford.info/cachedir/
 
 # Results
