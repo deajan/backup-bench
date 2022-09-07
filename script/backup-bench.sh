@@ -758,7 +758,9 @@ function backup_duplicacy {
 
 	Logger "Initializing duplicacy backup. Remote: ${remotely}." "NOTICE"
 
-	duplicacy backup -t "${backup_id}" --stats >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
+	# Added -threads 8 according to https://github.com/deajan/backup-bench/issues/14
+
+	duplicacy backup -t "${backup_id}" --stats -threads 8 >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
@@ -785,7 +787,9 @@ function restore_duplicacy {
 	revision=$(duplicacy list | grep "${backup_id}" | awk '{print $4}')
 	Logger "Using revision [${revision}]" "NOTICE"
 
-	duplicacy restore -r ${revision} >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
+	# Added -threads 8 according to https://github.com/deajan/backup-bench/issues/14
+
+	duplicacy restore -r ${revision} -threads 8 >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
