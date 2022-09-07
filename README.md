@@ -58,9 +58,12 @@ The following list is my personal shopping list when it comes to backup solution
 
 | **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
 |------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
-| **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | ?                     | ?             |
-| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | ?                     | ?             |
-| **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | ?                                          | ?                     | ?             |
+| **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | ?             |
+| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | ?                                          | No                    | ?             |
+| **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | ?                                          | HMAC                  | ?             |
+| **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | ?             |
+| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | ?             |
+| **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | ?                                          | HMAC                  | ?             |
 | **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | ?             |
 | **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | ?             |
 | **File management**                | Supports backup XATTRs                                                   | Yes                   | ?              | No                                         | Yes                   | ?             |
@@ -80,18 +83,24 @@ The following list is my personal shopping list when it comes to backup solution
 | **WAN Support**                    | What other remote backends are supported ?                               | rclone                | (1)            | (2)                                        | None                  | (1)           |
 | **Security**                       | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ?      | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM or Chacha20Poly1305       | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
 | **Security**                       | Are metadatas encrypted too ?                                            | ?                     | ?              | ?                                          | Yes                   | ?             |
-| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | ?                     | ?              | ?                                          | ?                     | ?             |
-| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | Supports optional object locking           | No (backup only keys) | ?             |
+| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | ?                     | ?              | ?                                          | No (4)                | ?             |
+| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | ?                                          | No (ssh permission)   | ?             |
 | **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | Yes           |
-| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | ?                     | ?             |
+| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | ?                                          | planned               | ?             |
+| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | ?                     | ?              | ?                                          | No (4)                | ?             |
+| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | Supports optional object locking           | No (ssh restriction ) | ?             |
+| **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | Yes           |
+| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | No, planned           | ?             |
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
-| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | No                    | No            |
+| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No            |
 
 (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
 (2) SFTP/Google Cloud/S3 and S3-compatible storage like Wasabi/B2/Azure/WebDav/rclone*
 (3) see https://bford.info/cachedir/
+(4) For bupstash, CRIME/BREACH style attacks are mitigated if you disable read access for backup clients, and keep decryption keys off server.
+
 
 # Results
 
