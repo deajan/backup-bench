@@ -11,7 +11,8 @@
 # Results can be found in /var/log as pseudo-CSV file
 # Should be executed together with a monitoring system that matches cpu/ram/io usage against the running backup solution (disclaimer: I use netdata)
 
-# Script tailored for RHEL 8 and clones (requires bash >=4.2 and uses dnf)
+# Script tested on RHEL 8 (would probably work on DEB based distros too)
+# requires bash >=4.2, and yum or apt
 
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
@@ -28,6 +29,50 @@ function self_setup {
 	source "${ofunctions_path}" || exit 99
 	# Don't polluate RUN_DIR since we won't need alerts
 	_LOGGER_WRITE_PARTIAL_LOGS=false
+}
+
+function download_prerequisites {
+	local nodeps="${1:-false}"
+
+	local result=true  # did we succeed in installing our stuff
+
+	if command dnf > /dev/null 2>&1; then
+		Logger "Installing packages tar, bzip2, git using dnf" "NOTICE"
+		dnf install -y tar bzip2 git || result=false
+
+		# bupstash specific since we need to build it from source
+		dnf install -y rust cargo pkgconfig libsodium-devel || result=false
+
+	elif command apt > /dev/null 2>&1; then
+		Logger "Installing packages tar, bzip2, git  using apt" "NOTICE"
+		apt install -y tar bzip2 git || result=false
+
+		# bupstash specific since we need to build it from source
+		apt install -y rustc cargo pkgconf libsodium-dev || result=false
+	else
+		result=false
+	fi
+
+	# Detect selinux and install semanage
+	if type -p getenforce > /dev/null 2>&1; then
+		# Is Selinux enabled
+		if [ "$(getenforce)" == "Enforcing" ]; then
+			Logger "Installing SELinux package policycoreutils-python-utils using dnf" "NOTICE"
+			dnf install -y policycoreutils-python-utils || result=false
+		else
+			Logger "Skipping SELinux setup since it's disabled or permissive" "NOTICE"
+		fi
+	fi
+
+	if [ "${result}" == false ]; then
+		if [ "${nodeps}" == false ]; then
+			Logger "Could not install required packages. We need the following: tar, bzip2, . You can bypass required packages install by specifying --no-deps" "NOTICE"
+		else
+			Logger "Required packages install bypassed" "NOTICE"
+		fi
+	else
+		Logger "Successfully installed required packages." "NOTICE"
+	fi
 }
 
 function get_lastest_git_release {
@@ -71,8 +116,8 @@ function setup_root_access {
 	# This allows the source machine to access target
 	ssh-keygen -b 2048 -t rsa -f /root/.ssh/backup-bench.rsa -q -N ""
 	cat /root/.ssh/backup-bench.rsa.pub > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
-	semanage fcontext -a -t ssh_home_t /root/.ssh/authorized_keys
-	restorecon -v /root/.ssh/authorized_keys
+	type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t /root/.ssh/authorized_keys
+	type -p restorecon > /dev/null 2>&1 && restorecon -v /root/.ssh/authorized_keys
 
 	cat /root/.ssh/backup-bench.rsa | ssh ${SOURCE_USER}@${SOURCE_FQDN} -p ${SOURCE_SSH_PORT} -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=/tmp/$PROGRAM.ctrlm.%r@%h.$$ "cat > ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key"
 	if [ "$?" != 0 ]; then
@@ -103,8 +148,8 @@ function setup_target_remote_repos {
 		ssh-keygen -b 2048 -t rsa -f ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa -q -N ""
 		cat ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa.pub > ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys && chmod 600 ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
 		chown "${backup_software}"_user -R ${TARGET_ROOT}/"${backup_software}"
-		semanage fcontext -a -t ssh_home_t ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
-		restorecon -v ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
+		type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
+		type -p restorecon > /dev/null 2>&1 && restorecon -v ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
 	done
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		Logger "Copying RSA key for ${backup_software} to source into [${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key]" "NOTICE"
@@ -124,7 +169,7 @@ function install_bupstash {
 	lastest_version=$(get_lastest_git_release andrewchambers bupstash)
 
 	Logger "Installing bupstash ${lastest_version}" "NOTICE"
-	dnf install -y rust cargo pkgconfig libsodium-devel tar
+	#dnf install -y rust cargo pkgconfig libsodium-devel tar  # now installed in specific function
 	mkdir -p /opt/bupstash/bupstash-"${lastest_version}" && cd /opt/bupstash/bupstash-"${lastest_version}" || exit 127
 	curl -OL https://github.com/andrewchambers/bupstash/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz
 	tar xvf bupstash-"${lastest_version}"-src+deps.tar.gz
@@ -364,7 +409,7 @@ function install_restic {
 	# Former restic install instructions
 	#dnf install -y epel-release
 	#dnf install -y restic
-	dnf install -y bzip2
+	#dnf install -y bzip2 # now installed in specific function
 
 	echo curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
 	curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
@@ -478,7 +523,7 @@ function clear_duplicacy_repository {
 }
 
 function setup_git_dataset {
-	dnf install -y git
+	#dnf install -y git # now installed in specific function
 	# We'll assume that BACKUP_ROOT will be a git root, so we need to git clone in parent directory
 	git_parent_dir="$(dirname ${BACKUP_ROOT:?})"
 	[ ! -d "${git_parent_dir}" ] && mkdir -p "${git_parent_dir}"
@@ -767,6 +812,7 @@ function setup_source {
 	local remotely="${1:-false}"
 
 	Logger "Setting up source server" "NOTICE"
+	download_prerequisites ${NODEPS}
 	install_bupstash ${BUPSTASH_VERSION}
 	install_borg
 	install_borg_beta
@@ -786,7 +832,7 @@ function setup_remote_target {
 	Logger "Setting up remote target server" "NOTICE"
 
 	setup_root_access
-
+	download_prerequisites ${NODEPS}
 	install_bupstash ${BUPSTASH_VERSION}
 	install_borg
 	install_borg_beta
@@ -1015,6 +1061,7 @@ function usage {
 	echo ""
 	echo "DEBUG commands"
 	echo "--setup-root-access               Manually setup root access (executed on target)"
+	echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually."
 	exit 128
 }
 
@@ -1032,6 +1079,7 @@ REMOTELY=false
 USE_GIT_VERSIONS=false
 ALL=false
 CONFIG_FILE="backup-bench.conf"
+NODEPS=false
 
 for i in "${@}"; do
 	case "$i" in
@@ -1076,6 +1124,9 @@ for i in "${@}"; do
 		;;
 		--git)
 		USE_GIT_VERSIONS=true
+		;;
+		--no-deps)
+		NODEPS=true
 		;;
 		--all)
 		ALL=true
