@@ -244,7 +244,7 @@ function get_version_borg {
 
 function install_borg_beta {
 	Logger "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b1/borg-linux64 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b2/borg-linux64 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
 	Logger "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
