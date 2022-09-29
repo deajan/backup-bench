@@ -371,17 +371,17 @@ function init_kopia_repository {
 			# When using HTTP, remote repository needs to exist before launching the server, hence it is created by serve_http function
 			export KOPIA_PASSWORD=  # We need to clean KOPIA_PASSWORD else policy set will fail
 			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}  --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
-			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression s2-default
+			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression zstd
 			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --add-ignore '.git' --add-ignore '.duplicacy'
 		else
 			kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
-			kopia policy set --global --compression s2-default
+			kopia policy set --global --compression zstd
 			kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 		fi
 	else
 		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
 		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overrided.
-		kopia policy set --global --compression s2-default
+		kopia policy set --global --compression zstd
 		kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 	fi
 	result=$?
@@ -671,7 +671,7 @@ function backup_kopia {
 	else
 		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
 	fi
-	kopia snapshot create --tags BACKUPID:"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.kopia_test.log 2>&1
+	kopia snapshot create --parallel 8 --tags BACKUPID:"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.kopia_test.log 2>&1
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
@@ -697,7 +697,7 @@ function restore_kopia {
 		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
 	fi
 	id="$(kopia snapshot list --tags BACKUPID:${backup_id} | awk '{print $4}')"
-	kopia restore --skip-owners --skip-permissions ${id} "${RESTORE_DIR}"  >> /var/log/${PROGRAM}.kopia_test.log 2>&1
+	kopia restore --parallel 8 --skip-owners --skip-permissions ${id} "${RESTORE_DIR}"  >> /var/log/${PROGRAM}.kopia_test.log 2>&1
 	result=$?
 	if [ "${result}" -ne 0 ]; then
 		Logger "Failure with exit code $result" "CRITICAL"
