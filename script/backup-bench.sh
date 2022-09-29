@@ -18,7 +18,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022090701
+PROGRAM_BUILD=2022092901
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -814,17 +814,30 @@ function get_repo_sizes {
 	echo "${CSV_SIZE}" >> "${CSV_RESULT_FILE}"
 }
 
+function install_backup_programs {
+	local is_remote="${1:-false}"
+
+	# bupstash, borg and kopia need to be installed on both source and targets
+	# restic and duplicity don't need to be installed on target
+	# restic rest server only needs to be installed on target
+
+	install_bupstash ${BUPSTASH_VERSION}
+	install_borg
+	install_borg_beta
+	install_kopia
+
+	[ "$is_remote" == false ] && install_restic
+	[ "$is_remote" == true ] && install_restic_rest_server
+	[ "$is_remote" == false ] && install_duplicacy ${DUPLICACY_VERSION}
+}
+
 function setup_source {
 	local remotely="${1:-false}"
 
 	Logger "Setting up source server" "NOTICE"
 	download_prerequisites ${NODEPS}
-	install_bupstash ${BUPSTASH_VERSION}
-	install_borg
-	install_borg_beta
-	install_kopia
-	install_restic
-	install_duplicacy ${DUPLICACY_VERSION}
+
+	install_backup_programs false
 
 	if [ "${remotely}" == false ]; then
 		Logger "Setting up local target" "NOTICE"
@@ -839,10 +852,9 @@ function setup_remote_target {
 
 	setup_root_access
 	download_prerequisites ${NODEPS}
-	install_bupstash ${BUPSTASH_VERSION}
-	install_borg
-	install_borg_beta
-	install_restic_rest_server
+
+	install_backup_programs true
+
 	clear_users
 	setup_target_remote_repos
 
@@ -1068,6 +1080,7 @@ function usage {
 	echo "DEBUG commands"
 	echo "--setup-root-access               Manually setup root access (executed on target)"
 	echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually."
+	echo "--install-backup-programs         Locally install / upgrade backup programs into /usr/local/bin. If launched with --remote, it will install only remote target required programs."
 	exit 128
 }
 
@@ -1133,6 +1146,9 @@ for i in "${@}"; do
 		;;
 		--no-deps)
 		NODEPS=true
+		;;
+		--install-backup-programs)
+		cmd="install_backup_programs"
 		;;
 		--all)
 		ALL=true
