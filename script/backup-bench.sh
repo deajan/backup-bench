@@ -477,11 +477,11 @@ function install_duplicacy {
 	Logger "Installing duplicacy ${lastest_version}" "NOTICE"
 	curl -L -o /usr/local/bin/duplicacy https://github.com/gilbertchen/duplicacy/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}"
 	chmod +x /usr/local/bin/duplicacy
-	Logger "Installed duplicacy (${version})" "NOTICE"
+	Logger "Installed duplicacy $(get_version_duplicacy)" "NOTICE"
 }
 
 function get_version_duplicacy {
-	echo "${DUPLICACY_VERSION}"
+	echo "$(duplicacy | grep -A1 "VERSION" | tail -n 1 | awk '{print $1}')"
 }
 
 function init_duplicacy_repository {
