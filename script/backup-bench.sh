@@ -18,7 +18,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022092901
+PROGRAM_BUILD=2022093001
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -139,6 +139,12 @@ function setup_target_remote_repos {
 		if [ "${HAVE_ZFS}" == true ]; then
 			zfs create backup/"${backup_software}"
 			zfs set compression=off backup/"${backup_software}"
+			zfs set xattr=off backup/"${backup_software}"
+			zfs set atime=off backup/"${backup_software}"
+			# The following setting is targeted at qcow file backups
+			# bupstash tends to create smaller files than others
+			# We might want to set recordsize=128k for linux kernel benchmarks
+			zfs set recordsize=1M backup/"${backup_software}"
 		else
 			mkdir -p ${TARGET_ROOT} || exit 127
 		fi
