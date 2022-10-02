@@ -1,9 +1,12 @@
 # current master
 
+# version 2022100201
+
 - Tune ZFS filesystem settings
 - Updated borg beta to version 2.0.0b2
 - Added debian compatibility (not tested)
 - Added duplicacy --threads 8 flag
+- Updated kopia to version 0.12.0
 - Try kopia s2-default compression algorith
   - Revert back to zstd since file size was 60% bigger, meaning we'd get biased comparaison
 - Added kopia --parallel 8 flag
