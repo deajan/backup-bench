@@ -113,7 +113,7 @@ Still it's a really nice to have in order to detect problems on backups without 
 - Remote target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm using ZFS 2.1.5, 1x 1TB WD Blue using XFS, running AlmaLinux 8.6
 
 - Target system has a XFS filesystem as target for the linux kernel backup tests
-- Target system has a ZFS filesystem as target for the qemu backup tests (not published yet). ZFS has been configured as follows:
+- Target system has a ZFS filesystem as target for the qemu backup tests. ZFS has been configured as follows:
     - `zfs set xattr=off backup`
 	- `zfs set compression=off backup`  # Since we already compress, we don't want to add another layer here
 	- `zfs set atime=off backup`
@@ -178,6 +178,20 @@ Remarks:
 - Since [last benchmark series](RESULTS-20220906.md), kopia 0.2.0 was released which resolves the [remote bottleneck](https://github.com/kopia/kopia/issues/2372)
 - I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
 
+
+#### backup private qemu disk images to remote repositories
+
+Remote repositories are configured as above, except that I used ZFS as a backing filesystem.
+
+Numbers:
+
+| Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
+| initial backup | 4699            | 7044       | 6692               | 12125        | 8848          | 5889            |
+| initial size   |        | 123111836  | 122673523          | 139953808    | 116151424     | 173809600       |
+
+Remarks:
+
 As I did the backup benchmarks, I computed the average size of the files in each repository using
 ```
 find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
@@ -189,7 +203,7 @@ Results for the linux kernel sources backups:
 | File count | 61417 | 2727 | 12 | 11 | 23 | 14 | 89 |
 | Avg file size (kb) | 62 | 42 | 12292 | 13839 | 6477 | 10629 | 2079 |
 
-I also computed the average file siezs in each repository for my private qemu images which I backup with all the tools using backup-bench.
+I also computed the average file sizes in each repository for my private qemu images which I backup with all the tools using backup-bench.
 
 Results for the qemu images backups:
 | Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
@@ -199,9 +213,8 @@ Results for the qemu images backups:
 Interesting enough, bupstash is the only software that produces sub megabyte chunks. Of the above 136654 files, only 39443 files weight more than 1MB.
 The qemu disk images are backed up to a ZFS filesystem with recordsize=1M.
 In order to measure the size difference, I created a ZFS filesystem with a 128k recordsize, and copied the bupstash repo to that filesystem.
-This resulted in bupstash repo size being 12% smaller.
-
-I'll publish the results the benchmark results of my qemu disk image backup benchmarks in next round.
+This resulted in bupstash repo size being roughly 13% smaller (137364728kb to 121167779kb).
+Since bupstash uses smaller chunk file sizes, I will continue using the 128k recordsize for the ZFS bupstash repository.
 
 ## EARLIER RESULTS
 
