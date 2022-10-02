@@ -120,14 +120,14 @@ Still it's a really nice to have in order to detect problems on backups without 
 	- `zfs set recordsize=1M backup`    # This could be tuned as per backup program...
 
 
-#### source data
+### source data
 
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
 Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
 
 Note: I removed restic_beta benchmark since restic 0.14.0 with compression support is officially released.
 
-#### backup multiple git repo versions to local repositories
+### backup multiple git repo versions to local repositories
 
 ![image](https://user-images.githubusercontent.com/4681318/193457878-3f9816d0-9853-42bf-a9f7-59c0560b9fe4.png)
 
@@ -149,7 +149,7 @@ Remarks:
  - bupstash was the most space efficient tool and is not CPU hungry.
  - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs from my Prometheus instance.
  
-#### backup multiple git repo versions to remote repositories
+### backup multiple git repo versions to remote repositories
 
 - Remote repositories are SSH (+ binary) for bupstash and burp.
 - Remote repository is SFTP for duplicacy.
@@ -179,16 +179,18 @@ Remarks:
 - I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
 
 
-#### backup private qemu disk images to remote repositories
+### backup private qemu disk images to remote repositories
 
 Remote repositories are configured as above, except that I used ZFS as a backing filesystem.
+
+![image](https://user-images.githubusercontent.com/4681318/193459995-b07cdc75-f98d-4334-9fe3-26b4d9d0ba1e.png)
 
 Numbers:
 
 | Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
 | initial backup | 4699            | 7044       | 6692               | 12125        | 8848          | 5889            |
-| initial size   |        | 123111836  | 122673523          | 139953808    | 116151424     | 173809600       |
+| initial size   | 121167779       | 123111836  | 122673523          | 139953808    | 116151424     | 173809600       |
 
 Remarks:
 
@@ -199,14 +201,18 @@ find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
 ```
 
 Results for the linux kernel sources backups:
+
 | Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+|----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 61417 | 2727 | 12 | 11 | 23 | 14 | 89 |
 | Avg file size (kb) | 62 | 42 | 12292 | 13839 | 6477 | 10629 | 2079 |
 
 I also computed the average file sizes in each repository for my private qemu images which I backup with all the tools using backup-bench.
 
 Results for the qemu images backups:
+
 | Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+|----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 15 | 136654 | 239 | 267 | 6337 | 66000 | 41322 |
 | Avg file size (kb) | 26177031 | 850 | 468088 | 469933 | 22030 | 17344875 | 3838 |
 
@@ -216,16 +222,16 @@ In order to measure the size difference, I created a ZFS filesystem with a 128k 
 This resulted in bupstash repo size being roughly 13% smaller (137364728kb to 121167779kb).
 Since bupstash uses smaller chunk file sizes, I will continue using the 128k recordsize for the ZFS bupstash repository.
 
-## EARLIER RESULTS
-
-- [2022-09-06](RESULTS-20220906.md)
-- [2022-08-19](RESULTS-20220819.md)
- 
-#### Other stuff
+## Footnotes
 
 - Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
 - duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
 - The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me.
+
+## EARLIER RESULTS
+
+- [2022-09-06](RESULTS-20220906.md)
+- [2022-08-19](RESULTS-20220819.md)
 
 ## Links
 
