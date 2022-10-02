@@ -124,6 +124,8 @@ Note: I removed restic_beta benchmark since restic 0.14.0 with compression suppo
 
 #### backup multiple git repo versions to local repositories
 
+![image](https://user-images.githubusercontent.com/4681318/193457878-3f9816d0-9853-42bf-a9f7-59c0560b9fe4.png)
+
 Numbers:
 | Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
@@ -149,6 +151,7 @@ Remarks:
 - Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
 - Remote repository is HTTPS for restic (rest-server 0.11.0 with 2048 bit RSA certificate)
 
+![image](https://user-images.githubusercontent.com/4681318/193457882-7228cba5-5ed3-4ffa-b2e0-4b863ef78df0.png)
 
 Numbers:
 
