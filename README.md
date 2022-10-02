@@ -200,8 +200,8 @@ I'll publish the results the benchmark results of my qemu disk image backup benc
 
 ## EARLIER RESULTS
 
-[2022-09-06](RESULTS-20220906.md)
-[2022-08-19](RESULTS-20220819.md)
+- [2022-09-06](RESULTS-20220906.md)
+- [2022-08-19](RESULTS-20220819.md)
  
 #### Other stuff
 
