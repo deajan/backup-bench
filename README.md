@@ -43,15 +43,15 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 07 Sept 2019
+Last update: 02 October 2022
 
 |Backup software|Version|
 |------------------|--------|
 |borg|1.2.2|
-|borg beta|2.0.0b1|
+|borg beta|2.0.0b2|
 |restic|0.14.0|
-|kopia|0.11.3|
-|bupstash|0.11.0|
+|kopia|0.12.0|
+|bupstash|0.11.1|
 |duplicacy|2.7.2|
 
 The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it. ;)
@@ -59,12 +59,14 @@ The following list is my personal shopping list when it comes to backup solution
 | **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
 |------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
 | **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | No indexes used|
-| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168]|
+| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168)|
 | **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | No (Reed–Solomon in the works)             | HMAC                  | Yes           |
 | **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | No            |
 | **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | Yes           |
 | **File management**                | Supports backup XATTRs                                                   | Yes                   | ?              | No                                         | Yes                   | ?             |
 | **File management**                | Supports backup ACLs                                                     | Yes                   | ?              | No                                         | Yes                   | ?             |
+| **File management**                | Supports hardlink identification (no multiple stored hardlinked files    | No ([borg2 will](https://github.com/borgbackup/borg/issues/2379) | [Yes](https://forum.restic.net/t/trying-to-understand-how-hard-links-are-handled-by-restic/3785) |  [No](https://github.com/kopia/kopia/issues/544#issuecomment-988329366)  | [Yes](https://github.com/deajan/backup-bench/issues/13#issue-1363979532)                  | [No](https://forum.duplicacy.com/t/hard-links-not-properly-restored/962/3)             |
+| **File management**                | Supports sparse files (thin provisionned files on disk)                  | [Yes](https://github.com/borgbackup/borg/pull/5561) | [Yes](https://github.com/restic/restic/pull/3854)              | [Yes](https://github.com/kopia/kopia/pull/1823)                                          | [Yes](https://bupstash.io/doc/man/bupstash-restore.html)                   | ?              |
 | **File management**                | Can exclude CACHEDIR.TAG(3) directories                                  | Yes                   | Yes            | Yes                                        | No                    | No            |
 | **Dedup & compression efficiency** | Is data compressed                                                       | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **Dedup & compression efficiency** | Uses newer compression algorithms (ie zstd)                              | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
@@ -87,7 +89,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
-| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, (generic benchmark)[https://forum.duplicacy.com/t/benchmark-command-details/1078|
+| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
 | **Misc**                           | Can a repo be synchronized to another repo ?                             | ?                     | ?              | Yes                                        | Yes                   | Yes           |
 
 - (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
@@ -98,10 +100,20 @@ The following list is my personal shopping list when it comes to backup solution
 
 # Results
 
-## 2022-09-06
+## 2022-10-02
 
-### Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
-### Target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm, using ZFS 2.1.5, running AlmaLinux 8.6
+### Used system specs
+
+- Source system: Xeon E3-1275, 64GB RAM, 2x SSD 480GB (for git dataset and local target), 2x4TB disks 7.2krpm (for bigger dataset), using XFS, running AlmaLinux 8.6
+- Remote target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm using ZFS 2.1.5, 1x 1TB WD Blue using XFS, running AlmaLinux 8.6
+
+- Target system has a XFS filesystem as target for the linux kernel backup tests
+- Target system has a ZFS filesystem as target for the qemu backup tests (not published yet). ZFS has been configured as follows:
+    - `zfs set xattr=off backup`
+	- `zfs set compression=off backup`  # Since we already compress, we don't want to add another layer here
+	- `zfs set atime=off backup`
+	- `zfs set recordsize=1M backup`    # This could be tuned as per backup program...
+
 
 #### source data
 
@@ -112,67 +124,84 @@ Note: I removed restic_beta benchmark since restic 0.14.0 with compression suppo
 
 #### backup multiple git repo versions to local repositories
 
-![image](https://user-images.githubusercontent.com/4681318/188726855-2813d297-3349-4849-9ac7-c58caa58a72d.png)
+![image](https://user-images.githubusercontent.com/4681318/193457878-3f9816d0-9853-42bf-a9f7-59c0560b9fe4.png)
 
 Numbers:
-| Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
+| Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
-| backup 1st run | 9               | 38         | 54                 | 9            | 23            | 30              |
-| backup 2nd run | 13              | 21         | 25                 | 4            | 9             | 14              |
-| backup 3rd run | 9               | 29         | 39                 | 7            | 18            | 24              |
-| backup 4th run | 6               | 21         | 29                 | 5            | 13            | 16              |
-| restore        | 3               | 17         | 16                 | 6            | 10            | 16              |
-| size 1st run   | 213220          | 257224     | 259512             | 259768       | 260588        | 360160          |
-| size 2nd run   | 375712          | 338792     | 341096             | 341060       | 343356        | 480392          |
-| size 3rd run   | 538768          | 527716     | 531980             | 529788       | 532216        | 722420          |
-| size 4th run   | 655764          | 660808     | 665692             | 666396       | 668840        | 895192          |
+| backup 1st run | 9               | 41         | 55                 | 10           | 23            | 32              |
+| backup 2nd run | 11              | 22         | 25                 | 4            | 8             | 13              |
+| backup 3rd run | 7               | 28         | 39                 | 7            | 17            | 23              |
+| backup 4th run | 5               | 20         | 29                 | 6            | 13            | 16              |
+| restore        | 4               | 16         | 17                 | 5            | 9             | 11              |
+| size 1st run   | 213268          | 257300     | 265748             | 259780       | 260520        | 360200          |
+| size 2nd run   | 375776          | 338760     | 348248             | 341088       | 343060        | 480600          |
+| size 3rd run   | 538836          | 527732     | 543432             | 529812       | 531892        | 722176          |
+| size 4th run   | 655836          | 660812     | 680092             | 666408       | 668404        | 894984          |
 
 Remarks:
  - kopia was the best allround performer on local backups when it comes to speed, but is quite CPU intensive.
- - bupstash was the most space efficient tool (beats borg beta by about 1MB), and is not CPU hungry.
- - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs.
+ - bupstash was the most space efficient tool and is not CPU hungry.
+ - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs from my Prometheus instance.
  
 #### backup multiple git repo versions to remote repositories
 
 - Remote repositories are SSH (+ binary) for bupstash and burp.
-- Remote repositories is SFTP for duplicacy.
+- Remote repository is SFTP for duplicacy.
 - Remote repository is HTTPS for kopia (kopia server with 2048 bit RSA certificate)
-- Remote repository is HTTP for restic (rest-server 0.11.0)
-- [Update] I've also redone the same tests in HTTPS with `--insecure-tls` which is documented on restic docs but not visible when using `restic --help`.
+- Remote repository is HTTPS for restic (rest-server 0.11.0 with 2048 bit RSA certificate)
 
-![image](https://user-images.githubusercontent.com/4681318/188742959-cb114ccd-0f03-47df-a07c-1d31ae8853a7.png)
+![image](https://user-images.githubusercontent.com/4681318/193457882-7228cba5-5ed3-4ffa-b2e0-4b863ef78df0.png)
 
 Numbers:
 
-| Operation      | bupstash 0.11.0 | borg 1.2.2 | borg\_beta 2.0.0b1 | kopia 0.11.3 | restic 0.14.0 | duplicacy 2.7.2 |
+| Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
 | -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
-| backup 1st run | 23              | 62         | 64                 | 1186         | 17            | 107             |
-| backup 2nd run | 16              | 25         | 29                 | 292          | 9             | 44              |
-| backup 3rd run | 19              | 37         | 48                 | 904          | 14            | 60              |
-| backup 4th run | 15              | 29         | 36                 | 800          | 11            | 47              |
-| restore        | 161             | 255        | 269                | 279          | 20            | 1217            |
-| size 1st run   | 250012          | 257534     | 260090             | 257927       | 262816        | 382572          |
-| size 2nd run   | 443008          | 339276     | 341704             | 339181       | 346264        | 508655          |
-| size 3rd run   | 633083          | 528482     | 532710             | 526723       | 536403        | 761362          |
-| size 4th run   | 769681          | 661720     | 666588             | 662558       | 673989        | 941247          |
+| backup 1st run | 10              | 47         | 67                 | 72           | 24            | 32              |
+| backup 2nd run | 12              | 25         | 30                 | 32           | 10            | 15              |
+| backup 3rd run | 9               | 36         | 47                 | 54           | 19            | 23              |
+| backup 4th run | 7               | 31         | 50                 | 46           | 21            | 23              |
+| restore        | 170             | 244        | 243                | 258          | 28            | 940             |
+| size 1st run   | 213240          | 257288     | 265716             | 255852       | 260608        | 360224          |
+| size 2nd run   | 375720          | 338720     | 348260             | 336440       | 342848        | 480856          |
+| size 3rd run   | 538780          | 527620     | 543204             | 522512       | 531820        | 722448          |
+| size 4th run   | 655780          | 660708     | 679868             | 657196       | 668436        | 895248          |
 
 Remarks:
-- Very bad restore results can be observed across all backup solutions (except restic), we'll need to investigate this:
-    - Both links are monitored by dpinger, which shows no loss.
-    - Target server, although being (really) old, has no observed bottlenecks (monitored, no iowait, disk usage nor cpu is skyrocketing)
-- Since [last benchmark series](RESULTS-20220819.md), I changed Kopia's backend from SFTP to HTTPS. There must be a bottlebeck since backup times are really bad, but restore times improved.
-    - I opened an issue at https://github.com/kopia/kopia/issues/2372 to see whether I configured kopia poorly.
-	- CPU usage on target is quite intensive when backing up via HTTPS contrary to SFTP backend. I need to investigate.
-- Since last benchmark series, I changed restic's backend from SFTP to HTTP. There's a *REALLY* big speed improvement, and numbers are comparable to local repositories.
-    - I must add HTTPS encryption so we can compare what's comparable. [UPDATE]: Done, same results + or - a couple of seconds, table and image is updated
-    - Indeed I checked that those numbers are really bound to remote repository, I can confirm, restic with rest-server is an all over winner when dealing with remote repositories.
-- Strangely, the repo sizes of bupstash and duplicacy are quite larger than local repos for the same data, I discussed the subject at https://github.com/andrewchambers/bupstash/issues/26 .
-    - I think this might be ZFS related. The remote target has a default recordsize of 128KB. I think I need to redo a next series of benchmarks with XFS as remote filesystem for repositories.
+- With restic's recent release 0.14.0, the remote speeds using rest-server increased dramatically and are onpar with local backup results.
+- All other programs take about 5-10x more time to restore than the initial backup, except for duplicacy, which has a 30x factor which is really bad
+- Since [last benchmark series](RESULTS-20220906.md), kopia 0.2.0 was released which resolves the [remote bottleneck](https://github.com/kopia/kopia/issues/2372)
+- I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
 
+As I did the backup benchmarks, I computed the average size of the files in each repository using
+```
+find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
+  END {printf "Count: %u\nAverage size: %.2f\n", NR, s/NR}'
+```
+
+Results for the linux kernel sources backups:
+| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+| File count | 61417 | 2727 | 12 | 11 | 23 | 14 | 89 |
+| Avg file size (kb) | 62 | 42 | 12292 | 13839 | 6477 | 10629 | 2079 |
+
+I also computed the average file siezs in each repository for my private qemu images which I backup with all the tools using backup-bench.
+
+Results for the qemu images backups:
+| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+| File count | 15 | 136654 | 239 | 267 | 6337 | 66000 | 41322 |
+| Avg file size (kb) | 26177031 | 850 | 468088 | 469933 | 22030 | 17344875 | 3838 |
+
+Interesting enough, bupstash is the only software that produces sub megabyte chunks. Of the above 136654 files, only 39443 files weight more than 1MB.
+The qemu disk images are backed up to a ZFS filesystem with recordsize=1M.
+In order to measure the size difference, I created a ZFS filesystem with a 128k recordsize, and copied the bupstash repo to that filesystem.
+This resulted in bupstash repo size being 12% smaller.
+
+I'll publish the results the benchmark results of my qemu disk image backup benchmarks in next round.
 
 ## EARLIER RESULTS
 
-[2022-08-19](RESULTS-20220819.md)
+- [2022-09-06](RESULTS-20220906.md)
+- [2022-08-19](RESULTS-20220819.md)
  
 #### Other stuff
 
