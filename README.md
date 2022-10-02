@@ -98,6 +98,10 @@ The following list is my personal shopping list when it comes to backup solution
 - (3) see https://bford.info/cachedir/
 - (4) For bupstash, CRIME/BREACH style attacks are mitigated if you disable read access for backup clients, and keep decryption keys off server.
 
+A quick word about backup coherence:
+
+While some backup tools might detect filesysetm changes inflight, it's usually the burden of a snapshot system (zfs, bcachefs, lvm, btrfs, vss...) to provide the backup program a reliable static version of the filesystem.
+Still it's a really nice to have in order to detect problems on backups without those snapshot aware tools, like plain XFS/EXT4 partitions.
 
 # Results
 
