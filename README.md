@@ -43,15 +43,15 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 07 Sept 2019
+Last update: 02 October 2022
 
 |Backup software|Version|
 |------------------|--------|
 |borg|1.2.2|
-|borg beta|2.0.0b1|
+|borg beta|2.0.0b2|
 |restic|0.14.0|
-|kopia|0.11.3|
-|bupstash|0.11.0|
+|kopia|0.12.0|
+|bupstash|0.11.1|
 |duplicacy|2.7.2|
 
 The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it. ;)
@@ -59,12 +59,14 @@ The following list is my personal shopping list when it comes to backup solution
 | **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
 |------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
 | **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | No indexes used|
-| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168]|
+| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168)|
 | **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | No (Reed–Solomon in the works)             | HMAC                  | Yes           |
 | **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | No            |
 | **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | Yes           |
 | **File management**                | Supports backup XATTRs                                                   | Yes                   | ?              | No                                         | Yes                   | ?             |
 | **File management**                | Supports backup ACLs                                                     | Yes                   | ?              | No                                         | Yes                   | ?             |
+| **File management**                | Supports hardlink identification (no multiple stored hardlinked files    | No ([borg2 will](https://github.com/borgbackup/borg/issues/2379) | [Yes](https://forum.restic.net/t/trying-to-understand-how-hard-links-are-handled-by-restic/3785) |  [No](https://github.com/kopia/kopia/issues/544#issuecomment-988329366)  | [Yes](https://github.com/deajan/backup-bench/issues/13#issue-1363979532)                  | [No](https://forum.duplicacy.com/t/hard-links-not-properly-restored/962/3)             |
+| **File management**                | Supports sparse files (thin provisionned files on disk)                  | [Yes](https://github.com/borgbackup/borg/pull/5561) | [Yes](https://github.com/restic/restic/pull/3854)              | [Yes](https://github.com/kopia/kopia/pull/1823)                                          | [Yes](https://bupstash.io/doc/man/bupstash-restore.html)                   | ?              |
 | **File management**                | Can exclude CACHEDIR.TAG(3) directories                                  | Yes                   | Yes            | Yes                                        | No                    | No            |
 | **Dedup & compression efficiency** | Is data compressed                                                       | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **Dedup & compression efficiency** | Uses newer compression algorithms (ie zstd)                              | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
@@ -87,7 +89,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
-| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, (generic benchmark)[https://forum.duplicacy.com/t/benchmark-command-details/1078|
+| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
 | **Misc**                           | Can a repo be synchronized to another repo ?                             | ?                     | ?              | Yes                                        | Yes                   | Yes           |
 
 - (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
