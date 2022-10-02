@@ -202,7 +202,7 @@ find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
 
 Results for the linux kernel sources backups:
 
-| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+| Software | Source         | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
 |----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 61417 | 2727 | 12 | 11 | 23 | 14 | 89 |
 | Avg file size (kb) | 62 | 42 | 12292 | 13839 | 6477 | 10629 | 2079 |
@@ -211,7 +211,7 @@ I also computed the average file sizes in each repository for my private qemu im
 
 Results for the qemu images backups:
 
-| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+| Software | Source         | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
 |----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 15 | 136654 | 239 | 267 | 6337 | 66000 | 41322 |
 | Avg file size (kb) | 26177031 | 850 | 468088 | 469933 | 22030 | 17344875 | 3838 |
