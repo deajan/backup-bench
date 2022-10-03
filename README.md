@@ -120,7 +120,7 @@ Still it's a really nice to have in order to detect problems on backups without 
 	- `zfs set recordsize=1M backup`    # This could be tuned as per backup program...
 
 
-### source data
+### source data for local and remote multiple git repo versions backup benchmarks
 
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
 Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
@@ -183,6 +183,7 @@ Remarks:
 
 ### backup private qemu disk images to remote repositories
 
+Source data are 8 qemu qcow2 files, and 7 virtual machines description JSON files for a total of 366GB.
 Remote repositories are configured as above, except that I used ZFS as a backing filesystem.
 
 ![image](https://user-images.githubusercontent.com/4681318/193459995-b07cdc75-f98d-4334-9fe3-26b4d9d0ba1e.png)
