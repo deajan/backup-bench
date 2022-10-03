@@ -43,7 +43,7 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 02 October 2022
+Last update: 03 October 2022
 
 |Backup software|Version|
 |------------------|--------|
@@ -82,9 +82,9 @@ The following list is my personal shopping list when it comes to backup solution
 | **WAN Support**                    | Can backups be sent to a remote destination without keeping a local copy | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **WAN Support**                    | What other remote backends are supported ?                               | rclone                | (1)            | (2)                                        | None                  | (1)           |
 | **Security**                       | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ?      | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM or Chacha20Poly1305       | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
-| **Security**                       | Are metadatas encrypted too ?                                            | ?                     | ?              | ?                                          | Yes                   | Yes           |
-| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687)                    | ?              | ?                                          | No (4)                | ?             |
-| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | Supports optional object locking           | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets|
+| **Security**                       | Are metadatas encrypted too ?                                            | ?                     | [Yes](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | Yes                   | Yes           |
+| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687)                    | [No](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | No (4)                | ?             |
+| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | [No](https://github.com/restic/restic/issues/3917#issuecomment-1242772365) (append mode)| Supports optional object locking           | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets|
 | **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662)           |
 | **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | No, planned           | ?             |
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
