@@ -1,5 +1,8 @@
 # current master
 
+- Added new parameter --backup-id-timestamp to deal with multiple non git backups
+- Tuned SSH a bit more (mostly done in sshd anyway)
+
 # version 2022100201
 
 - Tune ZFS filesystem settings
