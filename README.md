@@ -14,14 +14,14 @@ This repo aims to compare different backup solutions among:
  - [duplicacy](https://duplicacy.com)
  - your tool (PRs to support new backup tools are welcome)
  
- The idea is to have a script that executes all backup programs on the same datasets.
+The idea is to have a script that executes all backup programs on the same datasets.
  
- We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and ignoring .git directory).
- I'll also use another (not public) dataset which will be some qcow2 files which are in use.
+We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and ignoring .git directory).
+I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
- Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
+Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
 
- While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
+While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
  
 All backup programs are setup to use SSH in order to compare their performance regardless of the storage backend.
 
@@ -124,8 +124,6 @@ Still it's a really nice to have in order to detect problems on backups without 
 
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
 Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
-
-Note: I removed restic_beta benchmark since restic 0.14.0 with compression support is officially released.
 
 ### backup multiple git repo versions to local repositories
 
