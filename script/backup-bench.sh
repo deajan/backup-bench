@@ -18,7 +18,7 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022100301
+PROGRAM_BUILD=2022100401
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -934,7 +934,7 @@ function benchmark_backup_standard {
 		CSV_HEADER="${CSV_HEADER}${backup_software},"
 		echo 3 > /proc/sys/vm/drop_caches       # Make sure we drop caches (including zfs arc cache before every backup)
 		[ "${remotely}" == true ] && $REMOTE_SSH_RUNNER "echo 3 > /proc/sys/vm/drop_caches"
-		Logger "Starting backup bench of ${backup_software} for git dataset ${backup_id}" "NOTICE"
+		Logger "Starting backup bench of ${backup_software} name=${backup_id}" "NOTICE"
 		seconds_begin=$SECONDS
 		# Launch backup software from function "name"_backup as background so we keep control
 		backup_"${backup_software}" "${remotely}" "${backup_id}" &
@@ -970,6 +970,7 @@ function benchmark_backup_git {
 function benchmark_backup {
 	local remotely="${1}"
 	local git="${2:-false}"
+	local backup_id_timestamp="${3:-false}"
 
 	echo "# $PROGRAM $PROGRAM_BUILD $(date) Remote: ${remotely}, Git: ${git}" >> "${CSV_RESULT_FILE}"
 	CSV_HEADER=","
@@ -982,7 +983,12 @@ function benchmark_backup {
 	if [ "${git}" == true ]; then
 		benchmark_backup_git "${remotely}"
 	else
-		benchmark_backup_standard "${remotely}"
+		if [ "$backup_id_timestamp" == true ]; then
+			backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
+		else
+			backup_id="defaultid"
+		fi
+		benchmark_backup_standard "${remotely}" "${backup_id}"
 	fi
 }
 
@@ -1000,7 +1006,7 @@ function benchmark_restore_standard {
 		[ -d "${RESTORE_DIR}" ] && rm -rf "${RESTORE_DIR:?}"
 		mkdir -p "${RESTORE_DIR}"
 
-		Logger "Starting restore bench of ${backup_software} tag ${backup_id}" "NOTICE"
+		Logger "Starting restore bench of ${backup_software} name=${backup_id}" "NOTICE"
 		seconds_begin=$SECONDS
 		# Launch backup software from function "name"_restore as background so we keep control
 		restore_"${backup_software}" "${remotely}" "${backup_id}" &
@@ -1040,20 +1046,27 @@ function benchmark_restore_git {
 function benchmark_restore {
 	local remotely="${1}"
 	local git="${2:-false}"
+	local backup_id_timestamp="${3:-false}"
 
 	if [ "${git}" == true ]; then
 		benchmark_restore_git "${remotely}"
 	else
-		benchmark_restore_standard "${remotely}"
+		if [ "$backup_id_timestamp" == true ]; then
+			backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
+		else
+			backup_id="defaultid"
+		fi
+		benchmark_restore_standard "${remotely}" "${backup_id}"
 	fi
 }
 
 function benchmarks {
 	local remotely="${1}"
 	local git="${2:-false}"
+	local backup_id_timestamp="${3:-false}"
 
-	benchmark_backup "${remotely}" "${git}"
-	benchmark_restore "${remotely}" "${git}"
+	benchmark_backup "${remotely}" "${git}" "${backup_id_timestamp}"
+	benchmark_restore "${remotely}" "${git}" "${backup_id_timestamp}"
 }
 
 function usage {
@@ -1079,6 +1092,7 @@ function usage {
 	echo "--git				Use git dataset (multiple version benchmark)"
 	echo "--local				Execute locally (works for --clear-repos, --init-repos, --benchmark*)"
 	echo "--remote				Execute remotely (works for --clear-repos, --init-repos, --benchmark*)"
+	echo "--backup-id-timestamp             Add a timestamp as backup id when doing using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id."
 	echo ""
 	echo "After some benchmarks, you might want to remove earlier data from repositories."
 	echo "--clear-repos	       		Removes data from local (or remote with --remote) repositories"
@@ -1105,6 +1119,7 @@ USE_GIT_VERSIONS=false
 ALL=false
 CONFIG_FILE="backup-bench.conf"
 NODEPS=false
+BACKUP_ID_TIMESTAMP=false
 
 for i in "${@}"; do
 	case "$i" in
@@ -1150,6 +1165,9 @@ for i in "${@}"; do
 		--git)
 		USE_GIT_VERSIONS=true
 		;;
+		--backup-id-timestamp)
+		BACKUP_ID_TIMESTAMP=true
+		;;
 		--no-deps)
 		NODEPS=true
 		;;
@@ -1177,9 +1195,9 @@ if [ "${ALL}" == true ]; then
 	benchmarks false true
 	clear_repositories true
 	init_repositories true rtue
-	benchmarks true true
+	benchmarks true true $BACKUP_ID_TIMESTAMP
 else
-	full_cmd="$cmd $REMOTELY $USE_GIT_VERSIONS"
+	full_cmd="$cmd $REMOTELY $USE_GIT_VERSIONS $BACKUP_ID_TIMESTAMP"
 	Logger "Running: ${full_cmd}" "DEBUG"
 	eval "$full_cmd"
 fi
