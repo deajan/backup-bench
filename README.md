@@ -14,14 +14,14 @@ This repo aims to compare different backup solutions among:
  - [duplicacy](https://duplicacy.com)
  - your tool (PRs to support new backup tools are welcome)
  
- The idea is to have a script that executes all backup programs on the same datasets.
+The idea is to have a script that executes all backup programs on the same datasets.
  
- We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and ignoring .git directory).
- I'll also use another (not public) dataset which will be some qcow2 files which are in use.
+We'll use a quite big (and popular) git repo as first dataset so results can be reproduced by checking out branches (and ignoring .git directory).
+I'll also use another (not public) dataset which will be some qcow2 files which are in use.
  
- Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
+Time spent by the backup program is measured by the script so we get as accurate as possible results (time is measured from process beginning until process ends, with a 1 second granularity).
 
- While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
+While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
  
 All backup programs are setup to use SSH in order to compare their performance regardless of the storage backend.
 
@@ -43,7 +43,7 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 02 October 2022
+Last update: 03 October 2022
 
 |Backup software|Version|
 |------------------|--------|
@@ -61,6 +61,7 @@ The following list is my personal shopping list when it comes to backup solution
 | **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | No indexes used|
 | **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168)|
 | **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | No (Reed–Solomon in the works)             | HMAC                  | Yes           |
+| **Reliability**                    | Backup coherency (detecting in flight file changes while backing up)     | [Yes](https://github.com/deajan/backup-bench/issues/5#issue-1363881841) | [Yes](https://forum.restic.net/t/what-happens-if-file-changes-during-backup/264/2) | ? | [No](https://bupstash.io/doc/guides/Filesystem%20Backups.html) | ? |
 | **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | No            |
 | **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | Yes           |
 | **File management**                | Supports backup XATTRs                                                   | Yes                   | ?              | No                                         | Yes                   | ?             |
@@ -81,12 +82,12 @@ The following list is my personal shopping list when it comes to backup solution
 | **WAN Support**                    | Can backups be sent to a remote destination without keeping a local copy | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
 | **WAN Support**                    | What other remote backends are supported ?                               | rclone                | (1)            | (2)                                        | None                  | (1)           |
 | **Security**                       | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ?      | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM or Chacha20Poly1305       | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
-| **Security**                       | Are metadatas encrypted too ?                                            | ?                     | ?              | ?                                          | Yes                   | Yes           |
-| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687)                    | ?              | ?                                          | No (4)                | ?             |
-| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | ?              | Supports optional object locking           | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets|
+| **Security**                       | Are metadatas encrypted too ?                                            | ?                     | [Yes](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | Yes                   | Yes           |
+| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687)                    | [No](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | No (4)                | ?             |
+| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | [No](https://github.com/restic/restic/issues/3917#issuecomment-1242772365) (append mode)| Supports optional object locking           | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets|
 | **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662)           |
 | **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | No, planned           | ?             |
-| **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | ?             |
+| **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | [Yes](https://forum.duplicacy.com/t/pre-command-and-post-command-scripts/1100)             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
 | **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | No             | Yes                                        | No                    | ?             |
 | **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
@@ -97,6 +98,10 @@ The following list is my personal shopping list when it comes to backup solution
 - (3) see https://bford.info/cachedir/
 - (4) For bupstash, CRIME/BREACH style attacks are mitigated if you disable read access for backup clients, and keep decryption keys off server.
 
+A quick word about backup coherence:
+
+While some backup tools might detect filesysetm changes inflight, it's usually the burden of a snapshot system (zfs, bcachefs, lvm, btrfs, vss...) to provide the backup program a reliable static version of the filesystem.
+Still it's a really nice to have in order to detect problems on backups without those snapshot aware tools, like plain XFS/EXT4 partitions.
 
 # Results
 
@@ -108,21 +113,19 @@ The following list is my personal shopping list when it comes to backup solution
 - Remote target system: AMD Turion(tm) II Neo N54L Dual-Core Processor (yes, this is old), 6GB RAM, 2x4TB WD RE disks 7.2krpm using ZFS 2.1.5, 1x 1TB WD Blue using XFS, running AlmaLinux 8.6
 
 - Target system has a XFS filesystem as target for the linux kernel backup tests
-- Target system has a ZFS filesystem as target for the qemu backup tests (not published yet). ZFS has been configured as follows:
+- Target system has a ZFS filesystem as target for the qemu backup tests. ZFS has been configured as follows:
     - `zfs set xattr=off backup`
 	- `zfs set compression=off backup`  # Since we already compress, we don't want to add another layer here
 	- `zfs set atime=off backup`
 	- `zfs set recordsize=1M backup`    # This could be tuned as per backup program...
 
 
-#### source data
+### source data
 
 Linux kernel sources, initial git checkout v5.19, then changed to v5.18, 4.18 and finally v3.10 for the last run.
 Initial git directory totals 4.1GB, for 5039 directories and 76951 files. Using `env GZIP=-9 tar cvzf kernel.tar.gz /opt/backup_test/linux` produced a 2.8GB file. Again, using "best" compression with `tar cf - /opt/backup_test/linux | xz -9e -T4 -c - > kernel.tar.bz` produces a 2.6GB file, so there's probably big room for deduplication in the source files, even without running multiple consecutive backups on different points in time of the git repo.
 
-Note: I removed restic_beta benchmark since restic 0.14.0 with compression support is officially released.
-
-#### backup multiple git repo versions to local repositories
+### backup multiple git repo versions to local repositories
 
 ![image](https://user-images.githubusercontent.com/4681318/193457878-3f9816d0-9853-42bf-a9f7-59c0560b9fe4.png)
 
@@ -144,7 +147,7 @@ Remarks:
  - bupstash was the most space efficient tool and is not CPU hungry.
  - For the next instance, I'll need to post CPU / Memory / Disk IO usage graphs from my Prometheus instance.
  
-#### backup multiple git repo versions to remote repositories
+### backup multiple git repo versions to remote repositories
 
 - Remote repositories are SSH (+ binary) for bupstash and burp.
 - Remote repository is SFTP for duplicacy.
@@ -173,6 +176,22 @@ Remarks:
 - Since [last benchmark series](RESULTS-20220906.md), kopia 0.2.0 was released which resolves the [remote bottleneck](https://github.com/kopia/kopia/issues/2372)
 - I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
 
+
+### backup private qemu disk images to remote repositories
+
+Remote repositories are configured as above, except that I used ZFS as a backing filesystem.
+
+![image](https://user-images.githubusercontent.com/4681318/193459995-b07cdc75-f98d-4334-9fe3-26b4d9d0ba1e.png)
+
+Numbers:
+
+| Operation      | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12.0 | restic 0.14.0 | duplicacy 2.7.2 |
+| -------------- | --------------- | ---------- | ------------------ | ------------ | ------------- | --------------- |
+| initial backup | 4699            | 7044       | 6692               | 12125        | 8848          | 5889            |
+| initial size   | 121167779       | 123111836  | 122673523          | 139953808    | 116151424     | 173809600       |
+
+Remarks:
+
 As I did the backup benchmarks, I computed the average size of the files in each repository using
 ```
 find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
@@ -180,34 +199,37 @@ find /path/to/repository -type f -printf '%s\n' | awk '{s+=$0}
 ```
 
 Results for the linux kernel sources backups:
-| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+
+| Software | Source         | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+|----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 61417 | 2727 | 12 | 11 | 23 | 14 | 89 |
 | Avg file size (kb) | 62 | 42 | 12292 | 13839 | 6477 | 10629 | 2079 |
 
-I also computed the average file siezs in each repository for my private qemu images which I backup with all the tools using backup-bench.
+I also computed the average file sizes in each repository for my private qemu images which I backup with all the tools using backup-bench.
 
 Results for the qemu images backups:
-| Software | Original sizes | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+
+| Software | Source         | bupstash 0.11.1 | borg 1.2.2 | borg\_beta 2.0.0b2 | kopia 0.12 | restic 0.14.0 | duplicacy 2.7.2 |
+|----------|----------------|-----------------|------------|--------------------|------------|---------------|-----------------|
 | File count | 15 | 136654 | 239 | 267 | 6337 | 66000 | 41322 |
 | Avg file size (kb) | 26177031 | 850 | 468088 | 469933 | 22030 | 17344875 | 3838 |
 
 Interesting enough, bupstash is the only software that produces sub megabyte chunks. Of the above 136654 files, only 39443 files weight more than 1MB.
 The qemu disk images are backed up to a ZFS filesystem with recordsize=1M.
 In order to measure the size difference, I created a ZFS filesystem with a 128k recordsize, and copied the bupstash repo to that filesystem.
-This resulted in bupstash repo size being 12% smaller.
+This resulted in bupstash repo size being roughly 13% smaller (137364728kb to 121167779kb).
+Since bupstash uses smaller chunk file sizes, I will continue using the 128k recordsize for the ZFS bupstash repository.
 
-I'll publish the results the benchmark results of my qemu disk image backup benchmarks in next round.
+## Footnotes
+
+- Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
+- duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
+- The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me.
 
 ## EARLIER RESULTS
 
 - [2022-09-06](RESULTS-20220906.md)
 - [2022-08-19](RESULTS-20220819.md)
- 
-#### Other stuff
-
-- Getting restic SFTP to work with a different SSH port made me roam restic forums and try various setups. Didn't succeed in getting RESTIC_REPOSITORY variable to work with that configuration.
-- duplicacy wasn't as easy to script as the other tools, since it modifies the source directory (by adding .duplicacy folder) so I had to exclude that one from all the other backup tools.
-- The necessity for duplicacy to cd into the directory to backup/restore doesn't feel natural to me.
 
 ## Links
 
