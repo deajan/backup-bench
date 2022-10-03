@@ -175,7 +175,11 @@ Remarks:
 - All other programs take about 5-10x more time to restore than the initial backup, except for duplicacy, which has a 30x factor which is really bad
 - Since [last benchmark series](RESULTS-20220906.md), kopia 0.2.0 was released which resolves the [remote bottleneck](https://github.com/kopia/kopia/issues/2372)
 - I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
-
+- Noticing bad restore results, I've tried to tweak the SSH server:
+  - The best cipher algorithm on my repository server was chacha-poly1305 (found with https://gist.github.com/joeharr4/c7599c52f9fad9e53f62e9c8ae690e6b)
+  - Compression disabled
+  - X11 Forwarding disabled (was already disabled)
+  - The above settings were applied to sshd, so even duplicacy gets to use them, since I didn't find a way to configure those settings for duplicacy
 
 ### backup private qemu disk images to remote repositories
 
