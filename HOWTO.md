@@ -20,9 +20,14 @@ The script must prepare your machine by installing the requested backup software
 It can run as local backup benchmark solution only, in that case you should run the following commands:
 ```
 ./backup-bench.sh --clear-repos
-./backup-bench.sh --init-repos
+./backup-bench.sh --init-repos --git
 ./backup-bench.sh --benchmarks
 ```
+
+The `--git` parameter for `--init-repos` command instructs the script to fetch the linux kernel source as backup source.
+This allows to have the same datasets for different workloads.
+You may also configure `BACKUP_ROOT` variable in `backup-bench.conf` to point to specific dataset and avoid using `--git` parameter.
+
 
 You might want to run multiple iterations of backups.
 In that case, you can run the following
