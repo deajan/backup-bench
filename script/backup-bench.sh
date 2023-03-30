@@ -12,14 +12,14 @@
 # Results can be found in /var/log as pseudo-CSV file
 # Should be executed together with a monitoring system that matches cpu/ram/io usage against the running backup solution (disclaimer: I use netdata)
 
-# Script tested on RHEL 8 (would probably work on DEB based distros too)
+# Script tested on RHEL 8 & RHEL 9 (would probably work on DEB based distros too)
 # requires bash >=4.2, and yum or apt
 
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2023 by Orsiris de Jong"
-PROGRAM_BUILD=2023033001
+PROGRAM_BUILD=2023033002
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -1192,6 +1192,14 @@ function benchmarks {
 	benchmark_restore "${remotely}" "${git}" "${backup_id_timestamp}"
 }
 
+
+function versions {
+	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+		version=$(get_version_${backup_software})
+		echo "${backup_software} $version"
+	done
+}
+
 function usage {
 	echo "$PROGRAM $PROGRAM_BUILD"
 	echo "$AUTHOR"
@@ -1215,15 +1223,16 @@ function usage {
 	echo "--git				Use git dataset (multiple version benchmark)"
 	echo "--local				Execute locally (works for --clear-repos, --init-repos, --benchmark*)"
 	echo "--remote				Execute remotely (works for --clear-repos, --init-repos, --benchmark*)"
-	echo "--backup-id-timestamp             Add a timestamp as backup id when doing using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id."
+	echo "--backup-id-timestamp             Add a timestamp as backup id when doing using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id"
 	echo ""
-	echo "After some benchmarks, you might want to remove earlier data from repositories."
+	echo "After some benchmarks, you might want to remove earlier data from repositories"
 	echo "--clear-repos	       		Removes data from local (or remote with --remote) repositories"
 	echo ""
 	echo "DEBUG commands"
 	echo "--setup-root-access               Manually setup root access (executed on target)"
-	echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually."
-	echo "--install-backup-programs         Locally install / upgrade backup programs into /usr/local/bin. If launched with --remote, it will install only remote target required programs."
+	echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually"
+	echo "--install-backup-programs         Locally install / upgrade backup programs into /usr/local/bin. If launched with --remote, it will install only remote target required programs"
+	echo "--versions                        Show versions of all installed backup programs"
 	exit 128
 }
 
@@ -1299,6 +1308,9 @@ for i in "${@}"; do
 		;;
 		--all)
 		ALL=true
+		;;
+		--versions)
+		cmd="versions"
 		;;
 		*)
 		usage
