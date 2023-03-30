@@ -5,6 +5,7 @@
 # borg
 # kopia
 # restic
+# rustic
 # duplicacy
 
 # It (should) allow to produce reproductible results, and give an idea of what program is the fastest and creates the smallest backups
@@ -17,8 +18,8 @@
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
 PROGRAM="backup-bench"
-AUTHOR="(C) 2022 by Orsiris de Jong"
-PROGRAM_BUILD=2022100401
+AUTHOR="(C) 2022-2023 by Orsiris de Jong"
+PROGRAM_BUILD=2023033001
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -170,14 +171,14 @@ function setup_target_remote_repos {
 }
 
 function install_bupstash {
-	local version="${1}"
-
-	lastest_version=$(get_lastest_git_release andrewchambers bupstash)
+	ORG=andrewchambers
+	REPO=bupstash
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing bupstash ${lastest_version}" "NOTICE"
 	#dnf install -y rust cargo pkgconfig libsodium-devel tar  # now installed in specific function
 	mkdir -p /opt/bupstash/bupstash-"${lastest_version}" && cd /opt/bupstash/bupstash-"${lastest_version}" || exit 127
-	curl -OL https://github.com/andrewchambers/bupstash/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz
+	curl -OL https://github.com/$ORG/$REPO/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz
 	tar xvf bupstash-"${lastest_version}"-src+deps.tar.gz
 	cargo build --release
 	cp target/release/bupstash /usr/local/bin/
@@ -191,8 +192,6 @@ function get_version_bupstash {
 
 function setup_ssh_bupstash_server {
 	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/bupstash; bupstash serve ${TARGET_ROOT}/bupstash/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/bupstash/.ssh/authorized_keys)" > ${TARGET_ROOT}/bupstash/.ssh/authorized_keys
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o ${SOURCE_USER_HOMEDIR}/bupstash.master.key
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k ${SOURCE_USER_HOMEDIR}/bupstash.master.key --put --list -o ${SOURCE_USER_HOMEDIR}/bupstash.store.key
 }
 
 function init_bupstash_repository {
@@ -227,8 +226,9 @@ function clear_bupstash_repository {
 }
 
 function install_borg {
-
-	lastest_version=$(get_lastest_git_release borgbackup borg)
+	ORG=borgbackup
+	REPO=borg
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing borg ${lastest_version}" "NOTICE"
 
@@ -239,7 +239,7 @@ function install_borg {
 	#python3.9 -m pip install borgbackup
 
 	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.38
-	curl -o /usr/local/bin/borg -L https://github.com/borgbackup/borg/releases/download/${lastest_version}/borg-linuxold64 && chmod 755 /usr/local/bin/borg
+	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linuxold64 && chmod 755 /usr/local/bin/borg
 
 	Logger "Installed borg $(get_version_borg)" "NOTICE"
 }
@@ -250,7 +250,7 @@ function get_version_borg {
 
 function install_borg_beta {
 	Logger "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b2/borg-linux64 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b5/borg-linux64 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
 	Logger "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
@@ -334,7 +334,9 @@ function clear_borg_beta_repository {
 }
 
 function install_kopia {
-	lastest_version=$(get_lastest_git_release kopia kopia)
+	ORG=kopia
+	REPO=kopia
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing kopia" "NOTICE"
 
@@ -351,7 +353,7 @@ function install_kopia {
 #
 #	dnf install -y kopia
 
-	curl -OL https://github.com/kopia/kopia/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz
+	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz
 	tar xvf kopia-${lastest_version:1}-linux-x64.tar.gz
 	cp kopia-${lastest_version:1}-linux-x64/kopia /usr/local/bin/kopia
 	chmod +x /usr/local/bin/kopia
@@ -410,7 +412,9 @@ function clear_kopia_repository {
 }
 
 function install_restic {
-	lastest_version=$(get_lastest_git_release restic restic)
+	ORG=restic
+	REPO=restic
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing restic ${lastest_version}" "NOTICE"
 
@@ -419,8 +423,8 @@ function install_restic {
 	#dnf install -y restic
 	#dnf install -y bzip2 # now installed in specific function
 
-	echo curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
-	curl -OL https://github.com/restic/restic/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
+	echo curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
+	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
 	bzip2 -d restic_${lastest_version:1}_linux_amd64.bz2
 	alias cp=cp; cp restic_${lastest_version:1}_linux_amd64 /usr/local/bin/restic
 	chmod +x /usr/local/bin/restic
@@ -475,13 +479,69 @@ function clear_restic_repository {
 	fi
 }
 
-function install_duplicacy {
-	local version="${1}"
+function install_rustic {
+	ORG=rustic-rs
+	REPO=rustic
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
-	lastest_version=$(get_lastest_git_release gilbertchen duplicacy)
+	Logger "Installing rustic ${lastest_version}" "NOTICE"
+
+	# As of 2023-03-29, gnu build requires glibc 2.35 whereas RHEL9 has glibc 2.34
+	# musl build works
+	echo curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz
+	curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz
+	tar xvf /tmp/rustic.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rustic'
+	chmod +x /usr/local/bin/rustic
+
+
+	Logger "Installed rustic $(get_version_rustic)" "NOTICE"
+}
+
+function get_version_rustic {
+	echo "$(rustic --version | awk '{print $2}')"
+}
+
+function init_rustic_repository {
+	local remotely="${1:-false}"
+
+	Logger "Initializing rustic repository. Remote: ${remotely}." "NOTICE"
+	if [ "${remotely}" == true ]; then
+		# This should be executed on the source system
+		if [ "${RESTIC_USE_HTTP}" == true ]; then
+			# By default, rustic always initialises repo format version 2 with compression enabled, so no need to specify --set-version 2
+			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ init
+		else
+			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp"
+		fi
+	else
+		rustic -r ${TARGET_ROOT}/rustic/data init --set-version 2 --set-compression 3
+	fi
+	result=$?
+	if [ "${result}" -ne 0 ]; then
+		Logger "Failure with exit code $result" "CRITICAL"
+		exit 125
+	fi
+}
+
+function clear_rustic_repository {
+	local remotely="${1:-false}"
+
+	Logger "Clearing rustic repository. Remote: ${remotely}." "NOTICE"
+	cmd="rm -rf \"${TARGET_ROOT:?}/rustic/data\""
+	if [ "${remotely}" == true ]; then
+		$REMOTE_SSH_RUNNER $cmd
+	else
+		eval "${cmd}"
+	fi
+}
+
+function install_duplicacy {
+	ORG=gilbertchen
+	REPO=duplicacy
+	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing duplicacy ${lastest_version}" "NOTICE"
-	curl -L -o /usr/local/bin/duplicacy https://github.com/gilbertchen/duplicacy/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}"
+	curl -L -o /usr/local/bin/duplicacy https://github.com/$ORG/$REPO/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}"
 	chmod +x /usr/local/bin/duplicacy
 	Logger "Installed duplicacy $(get_version_duplicacy)" "NOTICE"
 }
@@ -755,6 +815,51 @@ function restore_restic {
 	fi
 }
 
+function backup_rustic {
+	local remotely="${1}"
+	local backup_id="${2}"
+
+	Logger "Initializing rustic backup. Remote: ${remotely}." "NOTICE"
+
+	if [ "${remotely}" == true ]; then
+		if [ "${RESTIC_USE_HTTP}" == true ]; then
+			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ backup --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		else
+			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		fi
+	else
+		rustic -r ${TARGET_ROOT}/rustic/data backup --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+	fi
+	result=$?
+	if [ "${result}" -ne 0 ]; then
+		Logger "Failure with exit code $result" "CRITICAL"
+	fi
+}
+
+function restore_rustic {
+	local remotely="${1}"
+	local backup_id="${2}"
+
+	Logger "Initializing rustic restore. Remote: ${remotely}." "NOTICE"
+
+	if [ "${remotely}" == true ]; then
+		if [ "${RUSTIC_USE_HTTP}" == true ]; then
+			id=$(rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $2}')
+			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		else
+			id=$(rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $2}')
+			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		fi
+	else
+		id=$(rustic -r ${TARGET_ROOT}/rustic/data snapshots | grep "${backup_id}" | awk '{print $2}')
+		rustic -r ${TARGET_ROOT}/rustic/data restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+	fi
+	result=$?
+	if [ "${result}" -ne 0 ]; then
+		Logger "Failure with exit code $result" "CRITICAL"
+	fi
+}
+
 
 function backup_duplicacy {
 	local remotely="${1}"
@@ -827,14 +932,15 @@ function install_backup_programs {
 	# restic and duplicity don't need to be installed on target
 	# restic rest server only needs to be installed on target
 
-	install_bupstash ${BUPSTASH_VERSION}
+	install_bupstash
 	install_borg
 	install_borg_beta
 	install_kopia
 
 	[ "$is_remote" == false ] && install_restic
+	[ "$is_remote" == false ] && install_rustic
 	[ "$is_remote" == true ] && install_restic_rest_server
-	[ "$is_remote" == false ] && install_duplicacy ${DUPLICACY_VERSION}
+	[ "$is_remote" == false ] && install_duplicacy
 }
 
 function setup_source {
@@ -849,6 +955,11 @@ function setup_source {
 		Logger "Setting up local target" "NOTICE"
 		setup_target_local_repos
 	fi
+
+	# Specific setup for bupstash where key is stored as file instead of env variable
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o ${SOURCE_USER_HOMEDIR}/bupstash.master.key
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k ${SOURCE_USER_HOMEDIR}/bupstash.master.key --put --list -o ${SOURCE_USER_HOMEDIR}/bupstash.store.key
+
 }
 
 function setup_remote_target {
@@ -889,6 +1000,11 @@ function init_repositories {
 	# The only reason we need to setup our dataset before being able to init the backup repositories is because duplicacy needs an existing source dir to init it's repo...
 	[ "${git}" == true ] && setup_git_dataset
 
+	if [ ! -d "${BACKUP_ROOT}" ]; then
+		Logger "Backup root ${BACKUP_ROOT} does not exist. Either create it and add test content, or use --git to initialize it." "CRITICAL"
+		exit 3
+	fi
+
 	Logger "Initializing reposiories. Remote: ${remotely}." "NOTICE"
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		init_"${backup_software}"_repository "${remotely}"
@@ -915,6 +1031,11 @@ function serve_http_targets {
 	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
 	pid=$!
 	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid." "NOTICE"
+	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
+
+	rest-server --no-auth --listen 0.0.0.0:${RUSTIC_HTTP_PORT} --path ${TARGET_ROOT}/rustic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
+	pid=$!
+	Logger "Serving rest-serve for rustic on http port ${RUSTIC_HTTP_PORT} using pid $pid." "NOTICE"
 	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
 	echo ""  # Just clear the line at the end
 }
@@ -1018,7 +1139,7 @@ function benchmark_restore_standard {
 		# Make sure restored version matches current version
 		Logger "Compare restored version to original directory" "NOTICE"
 		# borg and restic restore full paths, so we need to change restored path
-		if [ "${backup_software}" == "borg" ] || [ "${backup_software}" == "borg_beta" ] || [ "${backup_software}" == "restic" ]; then
+		if [ "${backup_software}" == "borg" ] || [ "${backup_software}" == "borg_beta" ] || [ "${backup_software}" == "restic" ] || [ "${backup_software}" == "rustic" ]; then
 			restored_path="${RESTORE_DIR}"/"${BACKUP_ROOT}/"
 		else
 			restored_path="${RESTORE_DIR}"
@@ -1026,7 +1147,9 @@ function benchmark_restore_standard {
 		diff -x .git -x .duplicacy -qr "${restored_path}" "${BACKUP_ROOT}/"
 		result=$?
 		if [ "${result}" -ne 0 ]; then
-			Logger "Failure with exit code $result for restore comparaison" "CRITICAL"
+			Logger "Failure with exit code $result for restore comparaison." "CRITICAL"
+		else
+			Logger "Restored files match source." "NOTICE"
 		fi
 	done
 	echo "$CSV_RESTORE_EXEC_TIME" >> "${CSV_RESULT_FILE}"
