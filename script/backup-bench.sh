@@ -514,7 +514,7 @@ function init_rustic_repository {
 			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp"
 		fi
 	else
-		rustic -r ${TARGET_ROOT}/rustic/data init --set-version 2 --set-compression 3
+		rustic -r ${TARGET_ROOT}/rustic/data init
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
