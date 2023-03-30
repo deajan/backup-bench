@@ -823,12 +823,12 @@ function backup_rustic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ backup --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
 		else
-			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
 		fi
 	else
-		rustic -r ${TARGET_ROOT}/rustic/data backup --exclude-if-present=".git" --exclude-if-present=".duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		rustic -r ${TARGET_ROOT}/rustic/data backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
