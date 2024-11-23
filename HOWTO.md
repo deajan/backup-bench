@@ -14,7 +14,7 @@ You can customize those settings in `backup-bench.conf` file.
 The script must prepare your machine by installing the requested backup software. You can do so with:
 
 ```
-./backup-bench. --setup-source
+./backup-bench.sh --setup-source
 ```
 
 It can run as local backup benchmark solution only, in that case you should run the following commands:
@@ -50,7 +50,7 @@ Both source and target machines must be reachable via SSH.
 After having setup the necessary FQDN and ports in `backup-bench.conf`, you can initialize the target with:
 
 ```
-./backup-bench. --setup-target
+./backup-bench.sh --setup-target
 ```
 
 The target machine will connect to your source server to upload the ssh keys necessary for the source machine to connect to your target. This requires you to enter the password once.
