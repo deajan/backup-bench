@@ -605,7 +605,7 @@ function backup_bupstash {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing bupstash backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching bupstash backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		export BUPSTASH_REPOSITORY_COMMAND=${BUPSTASH_REPOSITORY_COMMAND_REMOTE}
 		unset BUPSTASH_REPOSITORY
@@ -624,7 +624,7 @@ function restore_bupstash {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing bupstash restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching bupstash restore. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		export BUPSTASH_REPOSITORY_COMMAND=${BUPSTASH_REPOSITORY_COMMAND_REMOTE}
 		unset BUPSTASH_REPOSITORY
@@ -647,7 +647,7 @@ function backup_borg {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing borg backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching borg backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="$BORG_STABLE_REPO_REMOTE"
 		borg create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose ${BORG_REPO}::"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
@@ -666,7 +666,7 @@ function restore_borg {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing borg restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching borg restore. Remote: ${remotely}." "NOTICE"
 	cd "${RESTORE_DIR}" || return 127
 	# We'll use --noacls and --noxattrs to make sure we have same functionnality as others
 	if [ "${remotely}" == true ]; then
@@ -686,7 +686,7 @@ function backup_borg_beta {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing borg_beta backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching borg_beta backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
 		borg_beta create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
@@ -705,7 +705,7 @@ function restore_borg_beta {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing borg_beta restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching borg_beta restore. Remote: ${remotely}." "NOTICE"
 	cd "${RESTORE_DIR}" || return 127
 	# We'll use --noacls and --noxattrs to make sure we have same functionnality as others
 	if [ "${remotely}" == true ]; then
@@ -725,7 +725,7 @@ function backup_kopia {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing kopia backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching kopia backup. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
@@ -750,7 +750,7 @@ function restore_kopia {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing kopia restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching kopia restore. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
@@ -774,7 +774,7 @@ function backup_restic {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing restic backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching restic backup. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
@@ -795,7 +795,7 @@ function restore_restic {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing restic restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching restic restore. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
@@ -819,7 +819,7 @@ function backup_rustic {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing rustic backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching rustic backup. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
@@ -840,7 +840,7 @@ function restore_rustic {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing rustic restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching rustic restore. Remote: ${remotely}." "NOTICE"
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RUSTIC_USE_HTTP}" == true ]; then
@@ -867,7 +867,7 @@ function backup_duplicacy {
 
 	cd "${BACKUP_ROOT}" || exit 124
 
-	Logger "Initializing duplicacy backup. Remote: ${remotely}." "NOTICE"
+	Logger "Launching duplicacy backup. Remote: ${remotely}." "NOTICE"
 
 	# Added -threads 8 according to https://github.com/deajan/backup-bench/issues/14
 
@@ -882,7 +882,7 @@ function restore_duplicacy {
 	local remotely="${1}"
 	local backup_id="${2}"
 
-	Logger "Initializing duplicacy restore. Remote: ${remotely}." "NOTICE"
+	Logger "Launching duplicacy restore. Remote: ${remotely}." "NOTICE"
 
 	# duplicacy needs to init the repo (named someid here) to another directory so it can be restored
 	if [ "${remotely}" == true ]; then
