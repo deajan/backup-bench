@@ -205,6 +205,7 @@ function init_bupstash_repository {
 		export BUPSTASH_REPOSITORY="${BUPSTASH_REPOSITORY_LOCAL}"
 		unset BUPSTASH_REPOSITORY_COMMAND
 	fi
+
 	bupstash init
 	result=$?
 	if [ "${result}" -ne 0 ]; then
@@ -214,10 +215,11 @@ function init_bupstash_repository {
 }
 
 function clear_bupstash_repository {
-		local remotely="${1:-false}"
+	local remotely="${1:-false}"
 
+	# bupstash expects the directory to already exist in order to server it bia bupstash / or even just to make an init since v0.12
 	Logger "Clearing bupstash repository. Remote: ${remotely}." "NOTICE"
-	cmd="rm -rf \"${TARGET_ROOT:?}/bupstash/data\""
+	cmd="rm -rf \"${TARGET_ROOT:?}/bupstash; mkdir ${TARGET_ROOT:?}/bupstash; if getent passwd | grep bupstash_user > /dev/null; then chown bupstash_user \"${TARGET_ROOT}/borg/data\"; fi"
 	if [ "${remotely}" == true ]; then
 		$REMOTE_SSH_RUNNER $cmd
 	else
@@ -309,11 +311,10 @@ function clear_borg_repository {
 
 	Logger "Clearing borg repository. Remote: ${remotely}." "NOTICE"
 	# borg expects the data directory to already exist in order to serve it via borg --serve
+	cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\"; if getent passwd | grep borg_user > /dev/null; then chown borg_user \"${TARGET_ROOT}/borg/data\"; fi"
 	if [ "${remotely}" == true ]; then
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\" && chown borg_user \"${TARGET_ROOT}/borg/data\""
 		$REMOTE_SSH_RUNNER $cmd
 	else
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\""
 		eval "${cmd}"
 	fi
 }
@@ -323,11 +324,10 @@ function clear_borg_beta_repository {
 
 	Logger "Clearing borg_beta repository. Remote: ${remotely}." "NOTICE"
 	# borg expects the data directory to already exist in order to serve it via borg --serve
+	cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\"; if getent passwd | grep borg_user > /dev/null; then chown borg_user \"${TARGET_ROOT}/borg/data\"; fi"
 	if [ "${remotely}" == true ]; then
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\" && chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\""
 		$REMOTE_SSH_RUNNER $cmd
 	else
-		cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\""
 		eval "${cmd}"
 	fi
 
