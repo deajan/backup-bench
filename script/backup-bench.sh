@@ -18,8 +18,8 @@
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
 PROGRAM="backup-bench"
-AUTHOR="(C) 2022-2023 by Orsiris de Jong"
-PROGRAM_BUILD=2023033002
+AUTHOR="(C) 2022-2024 by Orsiris de Jong"
+PROGRAM_BUILD=2024112301
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -238,8 +238,8 @@ function install_borg {
 	#python3.9 -m pip install --upgrade pip setuptools wheel
 	#python3.9 -m pip install borgbackup
 
-	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.38
-	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linuxold64 && chmod 755 /usr/local/bin/borg
+	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.34
+	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linux-glibc231 && chmod 755 /usr/local/bin/borg
 
 	Logger "Installed borg $(get_version_borg)" "NOTICE"
 }
@@ -250,7 +250,7 @@ function get_version_borg {
 
 function install_borg_beta {
 	Logger "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b5/borg-linux64 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b14/borg-linux-glibc231 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
 	Logger "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
