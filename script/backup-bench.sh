@@ -294,10 +294,10 @@ function init_borg_beta_repository {
 	# --encrpytion=repokey-aes-ocb was found using borg_beta benchmark cpu
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
-		borg_beta --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" rcreate --encryption=repokey-aes-ocb
+		borg_beta --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" repo-create --encryption=repokey-aes-ocb
 	else
 		export BORG_REPO="$BORG_BETA_REPO_LOCAL"
-		borg_beta rcreate --encryption=repokey-aes-ocb
+		borg_beta repo-create --encryption=repokey-aes-ocb
 	fi
 	result=$?
 	if [ "${result}" -ne 0 ]; then
