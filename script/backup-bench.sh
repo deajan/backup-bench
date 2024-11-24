@@ -217,9 +217,9 @@ function init_bupstash_repository {
 function clear_bupstash_repository {
 	local remotely="${1:-false}"
 
-	# bupstash expects the directory to already exist in order to server it bia bupstash / or even just to make an init since v0.12
+	# bupstash expects the directory to not already exist in order to server it bia bupstash / or even just to make an init since v0.12
 	Logger "Clearing bupstash repository. Remote: ${remotely}." "NOTICE"
-	cmd="rm -rf \"${TARGET_ROOT:?}/bupstash; mkdir ${TARGET_ROOT:?}/bupstash; if getent passwd | grep bupstash_user > /dev/null; then chown bupstash_user \"${TARGET_ROOT}/borg/data\"; fi"
+	cmd="rm -rf \"${TARGET_ROOT:?}/bupstash\"; mkdir ${TARGET_ROOT:?}/bupstash; if getent passwd | grep bupstash_user > /dev/null; then chown bupstash_user \"${TARGET_ROOT}/bupstash\"; fi"
 	if [ "${remotely}" == true ]; then
 		$REMOTE_SSH_RUNNER $cmd
 	else
@@ -324,7 +324,7 @@ function clear_borg_beta_repository {
 
 	Logger "Clearing borg_beta repository. Remote: ${remotely}." "NOTICE"
 	# borg expects the data directory to already exist in order to serve it via borg --serve
-	cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\"; if getent passwd | grep borg_user > /dev/null; then chown borg_user \"${TARGET_ROOT}/borg/data\"; fi"
+	cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\"; if getent passwd | grep borg_beta_user > /dev/null; then chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\"; fi"
 	if [ "${remotely}" == true ]; then
 		$REMOTE_SSH_RUNNER $cmd
 	else
