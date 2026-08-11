@@ -7,6 +7,7 @@
 # restic
 # rustic
 # duplicacy
+# plakar ?
 
 # It (should) allow to produce reproductible results, and give an idea of what program is the fastest and creates the smallest backups
 # Results can be found in /var/log as pseudo-CSV file
@@ -18,8 +19,8 @@
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
 PROGRAM="backup-bench"
-AUTHOR="(C) 2022-2024 by Orsiris de Jong"
-PROGRAM_BUILD=2024112301
+AUTHOR="(C) 2022-2026 by Orsiris de Jong"
+PROGRAM_BUILD=20260801
 
 function self_setup {
 	echo "Setting up ofunctions"
@@ -252,7 +253,7 @@ function get_version_borg {
 
 function install_borg_beta {
 	Logger "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b14/borg-linux-glibc231 -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b22/borg-linux-glibc239-arm64-gh.tgz -o /usr/local/bin/borg_beta.tgz && tar xf /usr/local/bin/borg_beta.tgz && chmod 755 /usr/local/bin/borg_beta
 	Logger "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
