@@ -1330,7 +1330,7 @@ if [ "${ALL}" == true ]; then
 	init_repositories false true
 	benchmarks false true
 	clear_repositories true
-	init_repositories true rtue
+	init_repositories true true
 	benchmarks true true $BACKUP_ID_TIMESTAMP
 else
 	full_cmd="$cmd $REMOTELY $USE_GIT_VERSIONS $BACKUP_ID_TIMESTAMP"
