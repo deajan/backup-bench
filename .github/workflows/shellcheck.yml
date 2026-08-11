@@ -1,0 +1,17 @@
+name: ShellCheck
+on: [push]
+
+jobs:
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        # SC2068 (error): Double quote array expansions to avoid re-splitting elements. [SC2068]
+        # SC2181 (note): Check exit code directly with e.g. 'if ! mycmd;', not indirectly with $?.
+        # SC1091 (note): Not following: [FILEPATH] was not specified as input (see shellcheck -x).
+        #  We don't want to follow the optional config files here
+        env:
+          SHELLCHECK_OPTS: -e SC2181 -e SC2068 -e SC1091
