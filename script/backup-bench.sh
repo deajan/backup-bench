@@ -14,7 +14,7 @@
 # Should be executed together with a monitoring system that matches cpu/ram/io usage against the running backup solution (disclaimer: I use netdata)
 
 # Script tested on RHEL 8 & RHEL 9 (would probably work on DEB based distros too)
-# requires bash >=4.2, and yum or apt
+# requires bash >=4.3, and yum or apt
 
 # So why do we have multiple functions that could be factored into one ? Because each backup program might get different settings at some time, so it's easier to have one function per program
 
