@@ -38,14 +38,14 @@ function download_prerequisites {
 
 	local result=true  # did we succeed in installing our stuff
 
-	if command dnf > /dev/null 2>&1; then
+	if type dnf > /dev/null 2>&1; then
 		Logger "Installing packages tar, bzip2, git using dnf" "NOTICE"
 		dnf install -y tar bzip2 git || result=false
 
 		# bupstash specific since we need to build it from source
 		dnf install -y rust cargo pkgconfig libsodium-devel || result=false
 
-	elif command apt > /dev/null 2>&1; then
+	elif type apt > /dev/null 2>&1; then
 		Logger "Installing packages tar, bzip2, git  using apt" "NOTICE"
 		apt install -y tar bzip2 git || result=false
 
