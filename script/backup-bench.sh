@@ -22,6 +22,23 @@ PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2026 by Orsiris de Jong"
 PROGRAM_BUILD=20260801
 
+LOG_FILE="/var/log/${PROGRAM}.log"
+
+log() {
+    __log_line="${1}"
+    __log_level="${2:-INFO}"
+
+    __log_line="${__log_level}: ${__log_line}"
+    echo "${__log_line}"
+	echo "${__log_line}" >> "${LOG_FILE}"
+}
+
+log_quit() {
+    log "${1}" "${2}"
+    log "Exiting script"
+    exit 1
+}
+
 function self_setup {
 	echo "Setting up ofunctions"
 	ofunctions_path="/tmp/ofunctions.sh"
@@ -179,7 +196,7 @@ function install_bupstash {
 	Logger "Installing bupstash ${lastest_version}" "NOTICE"
 	#dnf install -y rust cargo pkgconfig libsodium-devel tar  # now installed in specific function
 	mkdir -p /opt/bupstash/bupstash-"${lastest_version}" && cd /opt/bupstash/bupstash-"${lastest_version}" || exit 127
-	curl -OL https://github.com/$ORG/$REPO/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz
+	curl -OL https://github.com/$ORG/$REPO/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz || log_quit "Cannot download bupstash"
 	tar xvf bupstash-"${lastest_version}"-src+deps.tar.gz
 	cargo build --release
 	cp target/release/bupstash /usr/local/bin/
@@ -242,7 +259,8 @@ function install_borg {
 	#python3.9 -m pip install borgbackup
 
 	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.34
-	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linux-glibc231 && chmod 755 /usr/local/bin/borg
+	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linux-glibc231 || log_quit "Cannot download borg"
+	chmod 755 /usr/local/bin/borg
 
 	Logger "Installed borg $(get_version_borg)" "NOTICE"
 }
@@ -253,7 +271,8 @@ function get_version_borg {
 
 function install_borg_beta {
 	Logger "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b22/borg-linux-glibc239-x86_64-gh -o /usr/local/bin/borg_beta && chmod 755 /usr/local/bin/borg_beta
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b22/borg-linux-glibc239-x86_64-gh -o /usr/local/bin/borg_beta || log_quit "Cannot download borg beta"
+	chmod 755 /usr/local/bin/borg_beta
 	Logger "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
@@ -354,7 +373,7 @@ function install_kopia {
 #
 #	dnf install -y kopia
 
-	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz
+	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz || log_quit "Cannot download kopia"
 	tar xvf kopia-${lastest_version:1}-linux-x64.tar.gz
 	cp kopia-${lastest_version:1}-linux-x64/kopia /usr/local/bin/kopia
 	chmod +x /usr/local/bin/kopia
@@ -425,9 +444,9 @@ function install_restic {
 	#dnf install -y bzip2 # now installed in specific function
 
 	echo curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
-	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
+	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2 || loq_quit "Cannot download restic"
 	bzip2 -d restic_${lastest_version:1}_linux_amd64.bz2
-	alias cp=cp; cp restic_${lastest_version:1}_linux_amd64 /usr/local/bin/restic
+	cp restic_${lastest_version:1}_linux_amd64 /usr/local/bin/restic
 	chmod +x /usr/local/bin/restic
 
 
@@ -442,7 +461,7 @@ function install_restic_rest_server {
 	lastest_version=$(get_lastest_git_release restic rest-server)
 
 	Logger "Installing restic rest-server ${lastest_version}" "NOTICE"
-	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz
+	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz || loq_quit "Cannot download rest-server"
 	tar xvf /tmp/rest-server.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rest-server'
 	chmod +x /usr/local/bin/rest-server
 }
@@ -490,7 +509,7 @@ function install_rustic {
 	# As of 2023-03-29, gnu build requires glibc 2.35 whereas RHEL9 has glibc 2.34
 	# musl build works
 	echo curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz
-	curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz
+	curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz || log_quit "Cannot download rustic"
 	tar xvf /tmp/rustic.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rustic'
 	chmod +x /usr/local/bin/rustic
 
@@ -542,7 +561,7 @@ function install_duplicacy {
 	lastest_version=$(get_lastest_git_release $ORG $REPO)
 
 	Logger "Installing duplicacy ${lastest_version}" "NOTICE"
-	curl -L -o /usr/local/bin/duplicacy https://github.com/$ORG/$REPO/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}"
+	curl -L -o /usr/local/bin/duplicacy https://github.com/$ORG/$REPO/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}" || log_quit "Cannot download duplicacy"
 	chmod +x /usr/local/bin/duplicacy
 	Logger "Installed duplicacy $(get_version_duplicacy)" "NOTICE"
 }
