@@ -982,8 +982,8 @@ function setup_source {
 	fi
 
 	# Specific setup for bupstash where key is stored as file instead of env variable
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o "${SOURCE_USER_HOMEDIR}/bupstash.master.key"
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k "${SOURCE_USER_HOMEDIR}/bupstash.master.key" --put --list -o "${SOURCE_USER_HOMEDIR}/bupstash.store.key"
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && "${BIN_DIR}/bupstash" new-key -o "${SOURCE_USER_HOMEDIR}/bupstash.master.key"
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && "${BIN_DIR}/bupstash" new-sub-key -k "${SOURCE_USER_HOMEDIR}/bupstash.master.key" --put --list -o "${SOURCE_USER_HOMEDIR}/bupstash.store.key"
 
 }
 
