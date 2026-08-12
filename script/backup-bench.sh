@@ -447,7 +447,7 @@ function install_restic {
 	echo curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2"
 	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2" || loq_quit "Cannot download restic"
 	bzip2 -d "restic_${lastest_version:1}_linux_amd64.bz2"
-	cp "restic_${lastest_version:1}_linux_amd64" é${BIN_DIR}/resticé
+	cp "restic_${lastest_version:1}_linux_amd64" "${BIN_DIR}/restic"
 	chmod +x "${BIN_DIR}/restic"
 
 
