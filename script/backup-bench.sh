@@ -98,8 +98,8 @@ function get_lastest_git_release {
 	local org="${1}"
 	local repo="${2}"
 
-	local LASTEST_VERSION=$(curl -s https://api.github.com/repos/${org}/${repo}/releases/latest | grep "tag_name" | cut -d'"' -f4)
-	echo ${LASTEST_VERSION}
+	local LASTEST_VERSION=$(curl -s "https://api.github.com/repos/${org}/${repo}/releases/latest" | grep "tag_name" | cut -d'"' -f4)
+	echo "${LASTEST_VERSION}"
 }
 
 function get_remote_certificate_fingerprint {
@@ -107,13 +107,13 @@ function get_remote_certificate_fingerprint {
 	local fqdn="${1}"
 	local port="${2}"
 
-	echo $(openssl s_client -connect ${fqdn}:${port} < /dev/null 2>/dev/null | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin | cut -d'=' -f2 | tr -d ':')
+	echo "$(openssl s_client -connect "${fqdn}:${port}" < /dev/null 2>/dev/null | openssl x509 -fingerprint -sha256 -noout -in /dev/stdin | cut -d'=' -f2 | tr -d ':')"
 }
 
 function get_certificate_fingerprint {
 	local file="${1}"
 
-	echo $(openssl x509 -fingerprint -sha256 -noout -in "${file}" | cut -d'=' -f2 | tr -d ':')
+	echo "$(openssl x509 -fingerprint -sha256 -noout -in "${file}" | cut -d'=' -f2 | tr -d ':')"
 }
 
 function create_certificate {
@@ -127,7 +127,7 @@ function clear_users {
 	# clean users on target system when using remote repositories
 	local backup_software
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-		userdel -r "${backup_software}"_user
+		userdel -r "${backup_software}_user"
 	done
 }
 
@@ -139,7 +139,7 @@ function setup_root_access {
 	type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t /root/.ssh/authorized_keys
 	type -p restorecon > /dev/null 2>&1 && restorecon -v /root/.ssh/authorized_keys
 
-	cat /root/.ssh/backup-bench.rsa | ssh ${SOURCE_USER}@${SOURCE_FQDN} -p ${SOURCE_SSH_PORT} -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=/tmp/$PROGRAM.ctrlm.%r@%h.$$ "cat > ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key"
+	cat /root/.ssh/backup-bench.rsa | ssh "${SOURCE_USER}@${SOURCE_FQDN}" -p "${SOURCE_SSH_PORT}" -o ControlMaster=auto -o ControlPersist=yes -o "ControlPath=/tmp/${PROGRAM}.ctrlm.%r@%h.$$" "cat > ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key"
 	if [ "$?" != 0 ]; then
 		echo "Failed to setup root access to target"
 		echo  "Please copy file \"/root/.ssh/backup-bench.rsa\" to source system in \"${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key\" and execute \"chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/backup-bench.key\""
@@ -149,8 +149,8 @@ function setup_root_access {
 function setup_target_local_repos {
 	local backup_software
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-		[ -d ${TARGET_ROOT}/"${backup_software}" ] && rm -rf ${TARGET_ROOT:?}/"${backup_software}"
-		mkdir -p ${TARGET_ROOT}/"${backup_software}"
+		[ -d "${TARGET_ROOT}/${backup_software}" ] && rm -rf "${TARGET_ROOT:?}/${backup_software}"
+		mkdir -p "${TARGET_ROOT}/${backup_software}"
 	done
 }
 
@@ -159,34 +159,34 @@ function setup_target_remote_repos {
 	local backup_software
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		if [ "${HAVE_ZFS}" == true ]; then
-			zfs create backup/"${backup_software}"
-			zfs set compression=off backup/"${backup_software}"
-			zfs set xattr=off backup/"${backup_software}"
-			zfs set atime=off backup/"${backup_software}"
+			zfs create "backup/${backup_software}"
+			zfs set compression=off "backup/${backup_software}"
+			zfs set xattr=off "backup/${backup_software}"
+			zfs set atime=off "backup/${backup_software}"
 			# The following setting is targeted at qcow file backups
 			# bupstash tends to create smaller files than others
 			# We might want to set recordsize=128k for linux kernel benchmarks
-			zfs set recordsize=1M backup/"${backup_software}"
+			zfs set recordsize=1M "backup/${backup_software}"
 		else
-			mkdir -p ${TARGET_ROOT} || exit 127
+			mkdir -p "${TARGET_ROOT}" || exit 127
 		fi
-		useradd -d ${TARGET_ROOT}/"${backup_software}" -m -r -U "${backup_software}"_user
-		mkdir -p ${TARGET_ROOT}/"${backup_software}"/data
-		mkdir -p ${TARGET_ROOT}/"${backup_software}"/.ssh && chmod 700 ${TARGET_ROOT}/"${backup_software}"/.ssh
-		ssh-keygen -b 2048 -t rsa -f ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa -q -N ""
-		cat ${TARGET_ROOT}/"${backup_software}"/.ssh/"${backup_software}".rsa.pub > ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys && chmod 600 ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
-		chown "${backup_software}"_user -R ${TARGET_ROOT}/"${backup_software}"
-		type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
-		type -p restorecon > /dev/null 2>&1 && restorecon -v ${TARGET_ROOT}/"${backup_software}"/.ssh/authorized_keys
+		useradd -d "${TARGET_ROOT}/${backup_software}" -m -r -U "${backup_software}_user"
+		mkdir -p "${TARGET_ROOT}/${backup_software}/data"
+		mkdir -p "${TARGET_ROOT}/${backup_software}/.ssh" && chmod 700 "${TARGET_ROOT}/${backup_software}/.ssh"
+		ssh-keygen -b 2048 -t rsa -f "${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa" -q -N ""
+		cat "${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa.pub" > "${TARGET_ROOT}/${backup_software}/.ssh/authorized_keys" && chmod 600 "${TARGET_ROOT}/${backup_software}/.ssh/authorized_keys"
+		chown "${backup_software}_user" -R "${TARGET_ROOT}/${backup_software}"
+		type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t "${TARGET_ROOT}/${backup_software}/.ssh/authorized_keys"
+		type -p restorecon > /dev/null 2>&1 && restorecon -v "${TARGET_ROOT}/${backup_software}/.ssh/authorized_keys"
 	done
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		Logger "Copying RSA key for ${backup_software} to source into [${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key]" "NOTICE"
-		cat "${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa" | ssh ${SOURCE_USER}@${SOURCE_FQDN} -p ${SOURCE_SSH_PORT} -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=/tmp/$PROGRAM.ctrlm.%r@%h.$$ "cat > ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key"
+		cat "${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa" | ssh "${SOURCE_USER}@${SOURCE_FQDN}" -p "${SOURCE_SSH_PORT}" -o ControlMaster=auto -o ControlPersist=yes -o "ControlPath=/tmp/${PROGRAM}.ctrlm.%r@%h.$$" "cat > ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key; chmod 600 ${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key"
 		if [ "$?" != 0 ]; then
 			echo "Failed to copy ssh key to source system"
 			echo "Please copy file \"${TARGET_ROOT}/${backup_software}/.ssh/${backup_software}.rsa\" to source system in \"${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key\" and execute chmod 600 \"${SOURCE_USER_HOMEDIR}/.ssh/${backup_software}.key\""
 		else
-			rm -f /tmp/$PROGRAM.ctrlm.%r@%h.$$
+			rm -f "/tmp/${PROGRAM}.ctrlm.%r@%h.$$"
 		fi
 	done
 }
@@ -194,13 +194,13 @@ function setup_target_remote_repos {
 function install_bupstash {
 	local ORG=andrewchambers
 	local REPO=bupstash
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing bupstash ${lastest_version}" "NOTICE"
 	#dnf install -y rust cargo pkgconfig libsodium-devel tar  # now installed in specific function
-	mkdir -p /opt/bupstash/bupstash-"${lastest_version}" && cd /opt/bupstash/bupstash-"${lastest_version}" || exit 127
-	curl -OL https://github.com/$ORG/$REPO/releases/download/"${lastest_version}"/bupstash-"${lastest_version}"-src+deps.tar.gz || log_quit "Cannot download bupstash"
-	tar xvf bupstash-"${lastest_version}"-src+deps.tar.gz
+	mkdir -p "/opt/bupstash/bupstash-${lastest_version}" && cd "/opt/bupstash/bupstash-${lastest_version}" || exit 127
+	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/bupstash-${lastest_version}-src+deps.tar.gz" || log_quit "Cannot download bupstash"
+	tar xvf "bupstash-${lastest_version}-src+deps.tar.gz"
 	cargo build --release
 	cp target/release/bupstash /usr/local/bin/
 
@@ -212,7 +212,7 @@ function get_version_bupstash {
 }
 
 function setup_ssh_bupstash_server {
-	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/bupstash; bupstash serve ${TARGET_ROOT}/bupstash/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/bupstash/.ssh/authorized_keys)" > ${TARGET_ROOT}/bupstash/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/bupstash; bupstash serve ${TARGET_ROOT}/bupstash/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat "${TARGET_ROOT}/bupstash/.ssh/authorized_keys")" > "${TARGET_ROOT}/bupstash/.ssh/authorized_keys"
 }
 
 function init_bupstash_repository {
@@ -220,7 +220,7 @@ function init_bupstash_repository {
 
 	Logger "Initializing bupstash repository. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		export BUPSTASH_REPOSITORY_COMMAND=${BUPSTASH_REPOSITORY_COMMAND_REMOTE}
+		export BUPSTASH_REPOSITORY_COMMAND="${BUPSTASH_REPOSITORY_COMMAND_REMOTE}"
 		unset BUPSTASH_REPOSITORY
 	else
 		export BUPSTASH_REPOSITORY="${BUPSTASH_REPOSITORY_LOCAL}"
@@ -230,7 +230,7 @@ function init_bupstash_repository {
 	bupstash init
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -242,7 +242,7 @@ function clear_bupstash_repository {
 	Logger "Clearing bupstash repository. Remote: ${remotely}." "NOTICE"
 	local cmd="rm -rf \"${TARGET_ROOT:?}/bupstash\"; mkdir ${TARGET_ROOT:?}/bupstash; if getent passwd | grep bupstash_user > /dev/null; then chown bupstash_user \"${TARGET_ROOT}/bupstash\"; fi"
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -251,7 +251,7 @@ function clear_bupstash_repository {
 function install_borg {
 	local ORG=borgbackup
 	local REPO=borg
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing borg ${lastest_version}" "NOTICE"
 
@@ -262,7 +262,7 @@ function install_borg {
 	#python3.9 -m pip install borgbackup
 
 	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.34
-	curl -o /usr/local/bin/borg -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/borg-linux-glibc231 || log_quit "Cannot download borg"
+	curl -o /usr/local/bin/borg -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/borg-linux-glibc231" || log_quit "Cannot download borg"
 	chmod 755 /usr/local/bin/borg
 
 	Logger "Installed borg $(get_version_borg)" "NOTICE"
@@ -284,11 +284,11 @@ function get_version_borg_beta {
 }
 
 function setup_ssh_borg_server {
-	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg/data; borg serve --restrict-to-path ${TARGET_ROOT}/borg/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/borg/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg/data; borg serve --restrict-to-path ${TARGET_ROOT}/borg/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat "${TARGET_ROOT}/borg/.ssh/authorized_keys")" > "${TARGET_ROOT}/borg/.ssh/authorized_keys"
 }
 
 function setup_ssh_borg_beta_server {
-	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg_beta/data; borg_beta serve --restrict-to-path ${TARGET_ROOT}/borg_beta/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys)" > ${TARGET_ROOT}/borg_beta/.ssh/authorized_keys
+	echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg_beta/data; borg_beta serve --restrict-to-path ${TARGET_ROOT}/borg_beta/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat "${TARGET_ROOT}/borg_beta/.ssh/authorized_keys")" > "${TARGET_ROOT}/borg_beta/.ssh/authorized_keys"
 }
 
 function init_borg_repository {
@@ -297,15 +297,15 @@ function init_borg_repository {
 	Logger "Initializing borg repository. Remote: ${remotely}." "NOTICE"
 	# -e repokey means AES-CTR-256 and HMAC-SHA256, see https://borgbackup.readthedocs.io/en/stable/usage/init.html)
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_STABLE_REPO_REMOTE"
-		borg init -e repokey --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" ${BORG_REPO}
+		export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
+		borg init -e repokey --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" "${BORG_REPO}"
 	else
-		export BORG_REPO="$BORG_STABLE_REPO_LOCAL"
-		borg init -e repokey ${BORG_REPO}
+		export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
+		borg init -e repokey "${BORG_REPO}"
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -316,15 +316,15 @@ function init_borg_beta_repository {
 	Logger "Initializing borg_beta repository. Remote: ${remotely}." "NOTICE"
 	# --encrpytion=repokey-aes-ocb was found using borg_beta benchmark cpu
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
+		export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
 		borg_beta --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" repo-create --encryption=repokey-aes-ocb
 	else
-		export BORG_REPO="$BORG_BETA_REPO_LOCAL"
+		export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
 		borg_beta repo-create --encryption=repokey-aes-ocb
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -336,7 +336,7 @@ function clear_borg_repository {
 	# borg expects the data directory to already exist in order to serve it via borg --serve
 	local cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\"; if getent passwd | grep borg_user > /dev/null; then chown borg_user \"${TARGET_ROOT}/borg/data\"; fi"
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -349,7 +349,7 @@ function clear_borg_beta_repository {
 	# borg expects the data directory to already exist in order to serve it via borg --serve
 	local cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\"; if getent passwd | grep borg_beta_user > /dev/null; then chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\"; fi"
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -359,7 +359,7 @@ function clear_borg_beta_repository {
 function install_kopia {
 	local ORG=kopia
 	local REPO=kopia
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing kopia" "NOTICE"
 
@@ -376,9 +376,9 @@ function install_kopia {
 #
 #	dnf install -y kopia
 
-	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz || log_quit "Cannot download kopia"
-	tar xvf kopia-${lastest_version:1}-linux-x64.tar.gz
-	cp kopia-${lastest_version:1}-linux-x64/kopia /usr/local/bin/kopia
+	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz" || log_quit "Cannot download kopia"
+	tar xvf "kopia-${lastest_version:1}-linux-x64.tar.gz"
+	cp "kopia-${lastest_version:1}-linux-x64/kopia" /usr/local/bin/kopia
 	chmod +x /usr/local/bin/kopia
 
 	Logger "Installed kopia $(get_version_kopia)" "NOTICE"
@@ -401,23 +401,23 @@ function init_kopia_repository {
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
 			# When using HTTP, remote repository needs to exist before launching the server, hence it is created by serve_http function
 			export KOPIA_PASSWORD=  # We need to clean KOPIA_PASSWORD else policy set will fail
-			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD}  --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
-			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --compression zstd
-			kopia policy set ${KOPIA_HTTP_USERNAME}@backup-bench-source --add-ignore '.git' --add-ignore '.duplicacy'
+			kopia repository connect server "--url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT}" --server-cert-fingerprint="$(get_remote_certificate_fingerprint "${REMOTE_TARGET_FQDN}" "${KOPIA_HTTP_PORT}")" -p "${KOPIA_HTTP_PASSWORD}" "--override-username=${KOPIA_HTTP_USERNAME}" --override-hostname=backup-bench-source
+			kopia policy set "${KOPIA_HTTP_USERNAME}@backup-bench-source" --compression zstd
+			kopia policy set "${KOPIA_HTTP_USERNAME}@backup-bench-source" --add-ignore '.git' --add-ignore '.duplicacy'
 		else
-			kopia repository create sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
+			kopia repository create sftp "--path=${TARGET_ROOT}/kopia/data" "--host=${REMOTE_TARGET_FQDN}" --port "${REMOTE_TARGET_SSH_PORT}" "--keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key" --username=kopia_user "--known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts" --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
 			kopia policy set --global --compression zstd
 			kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 		fi
 	else
-		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+		kopia repository create filesystem "--path=${TARGET_ROOT}/kopia/data"
 		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overridden.
 		kopia policy set --global --compression zstd
 		kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -428,7 +428,7 @@ function clear_kopia_repository {
 	Logger "Clearing kopia repository. Remote: ${remotely}." "NOTICE"
 	local cmd="rm -rf \"${TARGET_ROOT:?}/kopia/data\""
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -437,7 +437,7 @@ function clear_kopia_repository {
 function install_restic {
 	local ORG=restic
 	local REPO=restic
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing restic ${lastest_version}" "NOTICE"
 
@@ -446,10 +446,10 @@ function install_restic {
 	#dnf install -y restic
 	#dnf install -y bzip2 # now installed in specific function
 
-	echo curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2
-	curl -OL https://github.com/$ORG/$REPO/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2 || loq_quit "Cannot download restic"
-	bzip2 -d restic_${lastest_version:1}_linux_amd64.bz2
-	cp restic_${lastest_version:1}_linux_amd64 /usr/local/bin/restic
+	echo curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2"
+	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/restic_${lastest_version:1}_linux_amd64.bz2" || loq_quit "Cannot download restic"
+	bzip2 -d "restic_${lastest_version:1}_linux_amd64.bz2"
+	cp "restic_${lastest_version:1}_linux_amd64" /usr/local/bin/restic
 	chmod +x /usr/local/bin/restic
 
 
@@ -464,7 +464,7 @@ function install_restic_rest_server {
 	local lastest_version=$(get_lastest_git_release restic rest-server)
 
 	Logger "Installing restic rest-server ${lastest_version}" "NOTICE"
-	curl -o /tmp/rest-server.tar.gz -L https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz || loq_quit "Cannot download rest-server"
+	curl -o /tmp/rest-server.tar.gz -L "https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz" || loq_quit "Cannot download rest-server"
 	tar xvf /tmp/rest-server.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rest-server'
 	chmod +x /usr/local/bin/rest-server
 }
@@ -476,16 +476,16 @@ function init_restic_repository {
 	if [ "${remotely}" == true ]; then
 		# This should be executed on the source system
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ init --repository-version 2
+			restic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" init --repository-version 2
 		else
-			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
+			restic -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
 		fi
 	else
-		restic -r ${TARGET_ROOT}/restic/data init --repository-version 2
+		restic -r "${TARGET_ROOT}/restic/data" init --repository-version 2
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -496,7 +496,7 @@ function clear_restic_repository {
 	Logger "Clearing restic repository. Remote: ${remotely}." "NOTICE"
 	local cmd="rm -rf \"${TARGET_ROOT:?}/restic/data\""
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -505,14 +505,14 @@ function clear_restic_repository {
 function install_rustic {
 	local ORG=rustic-rs
 	local REPO=rustic
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing rustic ${lastest_version}" "NOTICE"
 
 	# As of 2023-03-29, gnu build requires glibc 2.35 whereas RHEL9 has glibc 2.34
 	# musl build works
-	echo curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz
-	curl -o /tmp/rustic.tar.gz -L https://github.com/$ORG/$REPO/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz || log_quit "Cannot download rustic"
+	echo curl -o /tmp/rustic.tar.gz -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz"
+	curl -o /tmp/rustic.tar.gz -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz" || log_quit "Cannot download rustic"
 	tar xvf /tmp/rustic.tar.gz --wildcards --no-anchored --transform='s/.*\///' -C /usr/local/bin 'rustic'
 	chmod +x /usr/local/bin/rustic
 
@@ -532,16 +532,16 @@ function init_rustic_repository {
 		# This should be executed on the source system
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
 			# By default, rustic always initialises repo format version 2 with compression enabled, so no need to specify --set-version 2
-			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ init
+			rustic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" init
 		else
-			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp"
+			rustic -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp"
 		fi
 	else
-		rustic -r ${TARGET_ROOT}/rustic/data init
+		rustic -r "${TARGET_ROOT}/rustic/data" init
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 }
@@ -552,7 +552,7 @@ function clear_rustic_repository {
 	Logger "Clearing rustic repository. Remote: ${remotely}." "NOTICE"
 	local cmd="rm -rf \"${TARGET_ROOT:?}/rustic/data\""
 	if [ "${remotely}" == true ]; then
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		eval "${cmd}"
 	fi
@@ -561,10 +561,10 @@ function clear_rustic_repository {
 function install_duplicacy {
 	local ORG=gilbertchen
 	local REPO=duplicacy
-	local lastest_version=$(get_lastest_git_release $ORG $REPO)
+	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	Logger "Installing duplicacy ${lastest_version}" "NOTICE"
-	curl -L -o /usr/local/bin/duplicacy https://github.com/$ORG/$REPO/releases/download/${lastest_version}/duplicacy_linux_x64_"${lastest_version:1}" || log_quit "Cannot download duplicacy"
+	curl -L -o /usr/local/bin/duplicacy "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/duplicacy_linux_x64_${lastest_version:1}" || log_quit "Cannot download duplicacy"
 	chmod +x /usr/local/bin/duplicacy
 	Logger "Installed duplicacy $(get_version_duplicacy)" "NOTICE"
 }
@@ -584,13 +584,13 @@ function init_duplicacy_repository {
 
 	if [ "${remotely}" == true ]; then
 		# This should be executed on the source system
-		duplicacy init -e remoteid sftp://duplicacy_user@${REMOTE_TARGET_FQDN}:${REMOTE_TARGET_SSH_PORT}/${TARGET_ROOT}/duplicacy/data
+		duplicacy init -e remoteid "sftp://duplicacy_user@${REMOTE_TARGET_FQDN}:${REMOTE_TARGET_SSH_PORT}/${TARGET_ROOT}/duplicacy/data"
 	else
-		duplicacy init -e localid ${TARGET_ROOT}/duplicacy/data
+		duplicacy init -e localid "${TARGET_ROOT}/duplicacy/data"
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 		exit 125
 	fi
 
@@ -604,7 +604,7 @@ function clear_duplicacy_repository {
 	Logger "Clearing duplicacy repository. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
 		local cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\" && chown duplicacy_user \"${TARGET_ROOT}/duplicacy/data\""
-		$REMOTE_SSH_RUNNER $cmd
+		${REMOTE_SSH_RUNNER} "${cmd}"
 	else
 		local cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\""
 		eval "${cmd}"
@@ -616,12 +616,12 @@ function clear_duplicacy_repository {
 function setup_git_dataset {
 	#dnf install -y git # now installed in specific function
 	# We'll assume that BACKUP_ROOT will be a git root, so we need to git clone in parent directory
-	local git_parent_dir="$(dirname ${BACKUP_ROOT:?})"
+	local git_parent_dir="$(dirname "${BACKUP_ROOT:?}")"
 	[ ! -d "${git_parent_dir}" ] && mkdir -p "${git_parent_dir}"
 	cd "${git_parent_dir}" || exit 127
 
 	[ -d "${GIT_ROOT_DIRECTORY}" ] && rm -rf "${GIT_ROOT_DIRECTORY}"
-	git clone ${GIT_DATASET_REPOSITORY}
+	git clone "${GIT_DATASET_REPOSITORY}"
 }
 
 function backup_bupstash {
@@ -630,16 +630,16 @@ function backup_bupstash {
 
 	Logger "Launching bupstash backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		export BUPSTASH_REPOSITORY_COMMAND=${BUPSTASH_REPOSITORY_COMMAND_REMOTE}
+		export BUPSTASH_REPOSITORY_COMMAND="${BUPSTASH_REPOSITORY_COMMAND_REMOTE}"
 		unset BUPSTASH_REPOSITORY
 	else
-		export BUPSTASH_REPOSITORY=${BUPSTASH_REPOSITORY_LOCAL}
+		export BUPSTASH_REPOSITORY="${BUPSTASH_REPOSITORY_LOCAL}"
 		unset BUPSTASH_REPOSITORY_COMMAND
 	fi
-	bupstash put --compression zstd:3 --exclude '.git' --exclude '.duplicacy' --print-file-actions --print-stats BACKUPID="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.bupstash_test.log 2>&1
+	bupstash put --compression zstd:3 --exclude '.git' --exclude '.duplicacy' --print-file-actions --print-stats BACKUPID="${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.bupstash_test.log" 2>&1
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -649,10 +649,10 @@ function restore_bupstash {
 
 	Logger "Launching bupstash restore. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		export BUPSTASH_REPOSITORY_COMMAND=${BUPSTASH_REPOSITORY_COMMAND_REMOTE}
+		export BUPSTASH_REPOSITORY_COMMAND="${BUPSTASH_REPOSITORY_COMMAND_REMOTE}"
 		unset BUPSTASH_REPOSITORY
 	else
-		export BUPSTASH_REPOSITORY=${BUPSTASH_REPOSITORY_LOCAL}
+		export BUPSTASH_REPOSITORY="${BUPSTASH_REPOSITORY_LOCAL}"
 		unset BUPSTASH_REPOSITORY_COMMAND
 	fi
 
@@ -661,7 +661,7 @@ function restore_bupstash {
 	bupstash restore --into "${RESTORE_DIR}" BACKUPID="${backup_id}"
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 	export BUPSTASH_KEY="${SOURCE_USER_HOMEDIR}/bupstash.store.key"
 }
@@ -672,15 +672,15 @@ function backup_borg {
 
 	Logger "Launching borg backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_STABLE_REPO_REMOTE"
-		borg create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose ${BORG_REPO}::"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
+		export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
+		borg create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.borg_tests.log" 2>&1
 	else
-		export BORG_REPO="$BORG_STABLE_REPO_LOCAL"
-		borg create --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose ${BORG_REPO}::"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
+		export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
+		borg create --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.borg_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 	# We can check the exclusion patterns with borg create --list --dry-run --exclude ...
 }
@@ -691,17 +691,17 @@ function restore_borg {
 
 	Logger "Launching borg restore. Remote: ${remotely}." "NOTICE"
 	cd "${RESTORE_DIR}" || return 127
-	# We'll use --noacls and --noxattrs to make sure we have same functionnlity as others
+	# We'll use --noacls and --noxattrs to make sure we have same functionality as others
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_STABLE_REPO_REMOTE"
-		borg extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs ${BORG_REPO}::"${backup_id}" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
+		export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
+		borg extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${BORG_REPO}"::"${backup_id}" >> "/var/log/${PROGRAM}.borg_tests.log" 2>&1
 	else
-		export BORG_REPO="$BORG_STABLE_REPO_LOCAL"
-		borg extract --noacls --noxattrs ${BORG_REPO}::"${backup_id}" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
+		export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
+		borg extract --noacls --noxattrs "${BORG_REPO}"::"${backup_id}" >> "/var/log/${PROGRAM}.borg_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -711,15 +711,15 @@ function backup_borg_beta {
 
 	Logger "Launching borg_beta backup. Remote: ${remotely}." "NOTICE"
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
-		borg_beta create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
+		export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
+		borg_beta create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.borg_beta_tests.log" 2>&1
 	else
-		export BORG_REPO="$BORG_BETA_REPO_LOCAL"
-		borg_beta create  --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
+		export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
+		borg_beta create  --compression zstd,3 --exclude 're:\.git/.*$' --exclude 're:\.duplicacy/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.borg_beta_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 	# We can check the exclusion patterns with borg create --list --dry-run --exclude ...
 }
@@ -732,15 +732,15 @@ function restore_borg_beta {
 	cd "${RESTORE_DIR}" || return 127
 	# We'll use --noacls and --noxattrs to make sure we have same functionality as others
 	if [ "${remotely}" == true ]; then
-		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
-		borg_beta extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
+		export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
+		borg_beta extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> "/var/log/${PROGRAM}.borg_beta_tests.log" 2>&1
 	else
-		export BORG_REPO="$BORG_BETA_REPO_LOCAL"
-		borg_beta extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
+		export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
+		borg_beta extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> "/var/log/${PROGRAM}.borg_beta_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -752,18 +752,18 @@ function backup_kopia {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
-			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD} --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
+			kopia repository connect server "--url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT}" --server-cert-fingerprint="$(get_remote_certificate_fingerprint "${REMOTE_TARGET_FQDN}" "${KOPIA_HTTP_PORT}")" -p "${KOPIA_HTTP_PASSWORD}" "--override-username=${KOPIA_HTTP_USERNAME}" --override-hostname=backup-bench-source
 			export KOPIA_PASSWORD= # if not cleaned, kopia snapshot will fail
 		else
-			kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+			kopia repository connect sftp "--path=${TARGET_ROOT}/kopia/data" "--host=${REMOTE_TARGET_FQDN}" --port "${REMOTE_TARGET_SSH_PORT}" "--keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key" --username=kopia_user "--known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts"
 		fi
 	else
-		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
+		kopia repository connect filesystem "--path=${TARGET_ROOT}/kopia/data"
 	fi
-	kopia snapshot create --parallel 8 --tags BACKUPID:"${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.kopia_test.log 2>&1
+	kopia snapshot create --parallel 8 --tags "BACKUPID:${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.kopia_test.log" 2>&1
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 	# We can check the exclusion patterns with kopia snapshot estimate
 
@@ -777,19 +777,19 @@ function restore_kopia {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${KOPIA_USE_HTTP}" == true ]; then
-			kopia repository connect server --url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_remote_certificate_fingerprint ${REMOTE_TARGET_FQDN} ${KOPIA_HTTP_PORT}) -p ${KOPIA_HTTP_PASSWORD} --override-username=${KOPIA_HTTP_USERNAME} --override-hostname=backup-bench-source
+			kopia repository connect server "--url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT}" --server-cert-fingerprint="$(get_remote_certificate_fingerprint "${REMOTE_TARGET_FQDN}" "${KOPIA_HTTP_PORT}")" -p "${KOPIA_HTTP_PASSWORD}" "--override-username=${KOPIA_HTTP_USERNAME}" --override-hostname=backup-bench-source
 			export KOPIA_PASSWORD= # if not cleaned, kopia restore will fail
 		else
-			kopia repository connect sftp --path=${TARGET_ROOT}/kopia/data --host=${REMOTE_TARGET_FQDN} --port ${REMOTE_TARGET_SSH_PORT} --keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key --username=kopia_user --known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts
+			kopia repository connect sftp "--path=${TARGET_ROOT}/kopia/data" "--host=${REMOTE_TARGET_FQDN}" --port "${REMOTE_TARGET_SSH_PORT}" "--keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key" --username=kopia_user "--known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts"
 		fi
 	else
-		kopia repository connect filesystem --path=${TARGET_ROOT}/kopia/data
+		kopia repository connect filesystem "--path=${TARGET_ROOT}/kopia/data"
 	fi
-	local id="$(kopia snapshot list --tags BACKUPID:${backup_id} | awk '{print $4}')"
-	kopia restore --parallel 8 --skip-owners --skip-permissions ${id} "${RESTORE_DIR}"  >> /var/log/${PROGRAM}.kopia_test.log 2>&1
+	local id="$(kopia snapshot list --tags "BACKUPID:${backup_id}" | awk '{print $4}')"
+	kopia restore --parallel 8 --skip-owners --skip-permissions "${id}" "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.kopia_test.log" 2>&1
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -801,16 +801,16 @@ function backup_restic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 		else
-			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			restic -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 		fi
 	else
-		restic -r ${TARGET_ROOT}/restic/data backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+		restic -r "${TARGET_ROOT}/restic/data" backup --verbose --exclude=".git" --exclude=".duplicacy" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -823,19 +823,19 @@ function restore_restic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			id=$(restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $1}')
-			restic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/ restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			id=$(restic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" snapshots | grep "${backup_id}" | awk '{print $1}')
+			restic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" restore "${id}" --target "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 		else
-			id=$(restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $1}')
-			restic -r sftp::${TARGET_ROOT}/restic/data -o sftp.command="ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+			id=$(restic -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $1}')
+			restic -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "${id}" --target "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 		fi
 	else
-		id=$(restic -r ${TARGET_ROOT}/restic/data snapshots | grep "${backup_id}" | awk '{print $1}')
-		restic -r ${TARGET_ROOT}/restic/data restore "$id" --target "${RESTORE_DIR}" >> /var/log/${PROGRAM}.restic_tests.log 2>&1
+		id=$(restic -r "${TARGET_ROOT}/restic/data" snapshots | grep "${backup_id}" | awk '{print $1}')
+		restic -r "${TARGET_ROOT}/restic/data" restore "${id}" --target "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.restic_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -847,16 +847,16 @@ function backup_rustic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RESTIC_USE_HTTP}" == true ]; then
-			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			rustic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 		else
-			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			rustic -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 		fi
 	else
-		rustic -r ${TARGET_ROOT}/rustic/data backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		rustic -r "${TARGET_ROOT}/rustic/data" backup --glob="!.git" --glob="!.duplicacy" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -869,19 +869,19 @@ function restore_rustic {
 
 	if [ "${remotely}" == true ]; then
 		if [ "${RUSTIC_USE_HTTP}" == true ]; then
-			id=$(rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ snapshots | grep "${backup_id}" | awk '{print $2}')
-			rustic --insecure-tls -r rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/ restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			id=$(rustic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" snapshots | grep "${backup_id}" | awk '{print $2}')
+			rustic --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" restore "${id}" "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 		else
-			id=$(rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $2}')
-			rustic -r sftp::${TARGET_ROOT}/rustic/data -o sftp.command="ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key $SSH_OPTS -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+			id=$(rustic -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $2}')
+			rustic -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "${id}" "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 		fi
 	else
-		id=$(rustic -r ${TARGET_ROOT}/rustic/data snapshots | grep "${backup_id}" | awk '{print $2}')
-		rustic -r ${TARGET_ROOT}/rustic/data restore "$id" "${RESTORE_DIR}" >> /var/log/${PROGRAM}.rustic_tests.log 2>&1
+		id=$(rustic -r "${TARGET_ROOT}/rustic/data" snapshots | grep "${backup_id}" | awk '{print $2}')
+		rustic -r "${TARGET_ROOT}/rustic/data" restore "${id}" "${RESTORE_DIR}" >> "/var/log/${PROGRAM}.rustic_tests.log" 2>&1
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -896,10 +896,10 @@ function backup_duplicacy {
 
 	# Added -threads 8 according to https://github.com/deajan/backup-bench/issues/14
 
-	duplicacy backup -t "${backup_id}" --stats -threads 8 >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
+	duplicacy backup -t "${backup_id}" --stats -threads 8 >> "/var/log/${PROGRAM}.duplicacy_tests.log" 2>&1
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -911,13 +911,13 @@ function restore_duplicacy {
 
 	# duplicacy needs to init the repo (named someid here) to another directory so it can be restored
 	if [ "${remotely}" == true ]; then
-		cd "${RESTORE_DIR}" && duplicacy init -e remoteid sftp://duplicacy_user@${REMOTE_TARGET_FQDN}:${REMOTE_TARGET_SSH_PORT}/${TARGET_ROOT}/duplicacy/data
+		cd "${RESTORE_DIR}" && duplicacy init -e remoteid "sftp://duplicacy_user@${REMOTE_TARGET_FQDN}:${REMOTE_TARGET_SSH_PORT}/${TARGET_ROOT}/duplicacy/data"
 	else
-		cd "${RESTORE_DIR}" && duplicacy init -e localid ${TARGET_ROOT}/duplicacy/data
+		cd "${RESTORE_DIR}" && duplicacy init -e localid "${TARGET_ROOT}/duplicacy/data"
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 
 	local revision=$(duplicacy list | grep "${backup_id}" | awk '{print $4}')
@@ -925,10 +925,10 @@ function restore_duplicacy {
 
 	# Added -threads 8 according to https://github.com/deajan/backup-bench/issues/14
 
-	duplicacy restore -r ${revision} -threads 8 >> /var/log/${PROGRAM}.duplicacy_tests.log 2>&1
+	duplicacy restore -r "${revision}" -threads 8 >> "/var/log/${PROGRAM}.duplicacy_tests.log" 2>&1
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
-		Logger "Failure with exit code $result" "CRITICAL"
+		Logger "Failure with exit code ${result}" "CRITICAL"
 	fi
 }
 
@@ -942,7 +942,7 @@ function get_repo_sizes {
 
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		if [ "${remotely}" == true ]; then
-			size=$($REMOTE_SSH_RUNNER du -cs "${TARGET_ROOT}/${backup_software}" | tail -n 1 | awk '{print $1}')
+			size=$(${REMOTE_SSH_RUNNER} du -cs "${TARGET_ROOT}/${backup_software}" | tail -n 1 | awk '{print $1}')
 		else
 			size=$(du -cs "${TARGET_ROOT}/${backup_software}" | tail -n 1 | awk '{print $1}')
 		fi
@@ -964,17 +964,17 @@ function install_backup_programs {
 	install_borg_beta
 	install_kopia
 
-	[ "$is_remote" == false ] && install_restic
-	[ "$is_remote" == false ] && install_rustic
-	[ "$is_remote" == true ] && install_restic_rest_server
-	[ "$is_remote" == false ] && install_duplicacy
+	[ "${is_remote}" == false ] && install_restic
+	[ "${is_remote}" == false ] && install_rustic
+	[ "${is_remote}" == true ] && install_restic_rest_server
+	[ "${is_remote}" == false ] && install_duplicacy
 }
 
 function setup_source {
 	local remotely="${1:-false}"
 
 	Logger "Setting up source server" "NOTICE"
-	download_prerequisites ${NODEPS}
+	download_prerequisites "${NODEPS}"
 
 	install_backup_programs false
 
@@ -984,8 +984,8 @@ function setup_source {
 	fi
 
 	# Specific setup for bupstash where key is stored as file instead of env variable
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o ${SOURCE_USER_HOMEDIR}/bupstash.master.key
-	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k ${SOURCE_USER_HOMEDIR}/bupstash.master.key --put --list -o ${SOURCE_USER_HOMEDIR}/bupstash.store.key
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.master.key" ] && bupstash new-key -o "${SOURCE_USER_HOMEDIR}/bupstash.master.key"
+	[ ! -f "${SOURCE_USER_HOMEDIR}/bupstash.store.key" ] && bupstash new-sub-key -k "${SOURCE_USER_HOMEDIR}/bupstash.master.key" --put --list -o "${SOURCE_USER_HOMEDIR}/bupstash.store.key"
 
 }
 
@@ -995,7 +995,7 @@ function setup_remote_target {
 	Logger "Setting up remote target server" "NOTICE"
 
 	setup_root_access
-	download_prerequisites ${NODEPS}
+	download_prerequisites "${NODEPS}"
 
 	install_backup_programs true
 
@@ -1014,7 +1014,7 @@ function clear_repositories {
 	local remotely="${1:-false}"
 	local backup_software
 
-	Logger "Clearing all repositories from earlier data. Remote clean: $remotely". "NOTICE"
+	Logger "Clearing all repositories from earlier data. Remote clean: ${remotely}". "NOTICE"
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		clear_"${backup_software}"_repository "${remotely}"
 	done
@@ -1045,37 +1045,37 @@ function serve_http_targets {
 	local cmd
 	local pid
 
-	[ ! -f "${TARGET_ROOT}/kopia/data/kopia.repository.f" ] && kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
+	[ ! -f "${TARGET_ROOT}/kopia/data/kopia.repository.f" ] && kopia repository create filesystem "--path=${TARGET_ROOT}/kopia/data"
 	cmd="kopia server start --address 0.0.0.0:${KOPIA_HTTP_PORT} --no-ui --tls-cert-file=\"${HOME}/https_backup-bench.crt\" --tls-key-file=\"${HOME}/https_backup-bench.key\""
-	Logger "Running kopia server with following command:\n$cmd" "NOTICE"
-	eval $cmd &
+	Logger "Running kopia server with following command:\n${cmd}" "NOTICE"
+	eval "${cmd}" &
 	pid=$!
 	# add acls for user
 	cmd="kopia server users add ${KOPIA_HTTP_USERNAME}@backup-bench-source --user-password=${KOPIA_HTTP_PASSWORD}"
-	eval $cmd
-	Logger "Adding kopia user with following command:\n$cmd" "NOTICE"
+	eval "${cmd}"
+	Logger "Adding kopia user with following command:\n${cmd}" "NOTICE"
 	# reload server
 	cmd="kopia server refresh --address https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint \"${HOME}/https_backup-bench.crt\")  --server-control-username=${KOPIA_SERVER_CONTROL_USER} --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD}"
-	Logger "Running kopia refresh with following command:\n$cmd" "NOTICE"
+	Logger "Running kopia refresh with following command:\n${cmd}" "NOTICE"
 	sleep 2 # arbitrary wait time
-	eval $cmd &
-	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid $pid." "NOTICE"
-	rest-server --no-auth --listen 0.0.0.0:${RESTIC_HTTP_PORT} --path ${TARGET_ROOT}/restic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
+	eval "${cmd}" &
+	Logger "Serving kopia on http port ${KOPIA_HTTP_PORT} using pid ${pid}." "NOTICE"
+	rest-server --no-auth --listen "0.0.0.0:${RESTIC_HTTP_PORT}" --path "${TARGET_ROOT}/restic/data" --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
 	pid=$!
-	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid $pid." "NOTICE"
+	Logger "Serving rest-serve for restic on http port ${RESTIC_HTTP_PORT} using pid ${pid}." "NOTICE"
 	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
 
-	rest-server --no-auth --listen 0.0.0.0:${RUSTIC_HTTP_PORT} --path ${TARGET_ROOT}/rustic/data --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
+	rest-server --no-auth --listen "0.0.0.0:${RUSTIC_HTTP_PORT}" --path "${TARGET_ROOT}/rustic/data" --tls --tls-cert="${HOME}/https_backup-bench.crt" --tls-key="${HOME}/https_backup-bench.key" &
 	pid=$!
-	Logger "Serving rest-serve for rustic on http port ${RUSTIC_HTTP_PORT} using pid $pid." "NOTICE"
+	Logger "Serving rest-serve for rustic on http port ${RUSTIC_HTTP_PORT} using pid ${pid}." "NOTICE"
 	Logger "Stop servers using $0 --stop-http-targets" "NOTICE"
 	echo ""  # Just clear the line at the end
 }
 
 function stop_serve_http_targets {
 	local i
-	for i in $(pgrep kopia); do kill $i; done
-	for i in $(pgrep rest-server); do kill $i; done
+	for i in $(pgrep kopia); do kill "${i}"; done
+	for i in $(pgrep rest-server); do kill "${i}"; done
 }
 
 function benchmark_backup_standard {
@@ -1090,7 +1090,7 @@ function benchmark_backup_standard {
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		CSV_HEADER="${CSV_HEADER}${backup_software},"
 		echo 3 > /proc/sys/vm/drop_caches       # Make sure we drop caches (including zfs arc cache before every backup)
-		[ "${remotely}" == true ] && $REMOTE_SSH_RUNNER "echo 3 > /proc/sys/vm/drop_caches"
+		[ "${remotely}" == true ] && ${REMOTE_SSH_RUNNER} "echo 3 > /proc/sys/vm/drop_caches"
 		Logger "Starting backup bench of ${backup_software} name=${backup_id}" "NOTICE"
 		seconds_begin=$SECONDS
 		# Launch backup software from function "name"_backup as background so we keep control
@@ -1101,7 +1101,7 @@ function benchmark_backup_standard {
 		Logger "It took ${exec_time} seconds to backup." "NOTICE"
 	done
 
-	echo "$CSV_BACKUP_EXEC_TIME" >> "${CSV_RESULT_FILE}"
+	echo "${CSV_BACKUP_EXEC_TIME}" >> "${CSV_RESULT_FILE}"
 	get_repo_sizes "${remotely}"
 }
 
@@ -1144,7 +1144,7 @@ function benchmark_backup {
 	if [ "${git}" == true ]; then
 		benchmark_backup_git "${remotely}"
 	else
-		if [ "$backup_id_timestamp" == true ]; then
+		if [ "${backup_id_timestamp}" == true ]; then
 			backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
 		else
 			backup_id="defaultid"
@@ -1167,7 +1167,7 @@ function benchmark_restore_standard {
 	# Restore last snapshot and compare with actual kernel
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		echo 3 > /proc/sys/vm/drop_caches       # Make sure we drop caches (including zfs arc cache before every backup)
-		[ "${remotely}" == true ] && $REMOTE_SSH_RUNNER "echo 3 > /proc/sys/vm/drop_caches"
+		[ "${remotely}" == true ] && ${REMOTE_SSH_RUNNER} "echo 3 > /proc/sys/vm/drop_caches"
 
 		[ -d "${RESTORE_DIR}" ] && rm -rf "${RESTORE_DIR:?}"
 		mkdir -p "${RESTORE_DIR}"
@@ -1192,12 +1192,12 @@ function benchmark_restore_standard {
 		diff -x .git -x .duplicacy -qr "${restored_path}" "${BACKUP_ROOT}/"
 		result=$?
 		if [ "${result}" -ne 0 ]; then
-			Logger "Failure with exit code $result for restore comparison." "CRITICAL"
+			Logger "Failure with exit code ${result} for restore comparison." "CRITICAL"
 		else
 			Logger "Restored files match source." "NOTICE"
 		fi
 	done
-	echo "$CSV_RESTORE_EXEC_TIME" >> "${CSV_RESULT_FILE}"
+	echo "${CSV_RESTORE_EXEC_TIME}" >> "${CSV_RESULT_FILE}"
 
 }
 
@@ -1220,7 +1220,7 @@ function benchmark_restore {
 	if [ "${git}" == true ]; then
 		benchmark_restore_git "${remotely}"
 	else
-		if [ "$backup_id_timestamp" == true ]; then
+		if [ "${backup_id_timestamp}" == true ]; then
 			backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
 		else
 			backup_id="defaultid"
@@ -1244,13 +1244,13 @@ function versions {
 	local version
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		version=$(get_version_${backup_software})
-		echo "${backup_software} $version"
+		echo "${backup_software} ${version}"
 	done
 }
 
 function usage {
-	echo "$PROGRAM $PROGRAM_BUILD"
-	echo "$AUTHOR"
+	echo "${PROGRAM} ${PROGRAM_BUILD}"
+	echo "${AUTHOR}"
 	echo ""
 	echo "Please setup your config file (defaults to backup-bench.conf"
 	echo "Once you've setup the configuration, you may use it to initialize target, then source."
@@ -1302,7 +1302,7 @@ NODEPS=false
 BACKUP_ID_TIMESTAMP=false
 
 for i in "${@}"; do
-	case "$i" in
+	case "${i}" in
 		--config=*)
 		CONFIG_FILE="${i##*=}"
 		;;
@@ -1378,11 +1378,11 @@ if [ "${ALL}" == true ]; then
 	benchmarks false true
 	clear_repositories true
 	init_repositories true true
-	benchmarks true true $BACKUP_ID_TIMESTAMP
+	benchmarks true true "${BACKUP_ID_TIMESTAMP}"
 else
-	full_cmd="$cmd $REMOTELY $USE_GIT_VERSIONS $BACKUP_ID_TIMESTAMP"
+	full_cmd="${cmd} ${REMOTELY} ${USE_GIT_VERSIONS} ${BACKUP_ID_TIMESTAMP}"
 	Logger "Running: ${full_cmd}" "DEBUG"
-	eval "$full_cmd"
+	eval "${full_cmd}"
 fi
 
 CleanUp
