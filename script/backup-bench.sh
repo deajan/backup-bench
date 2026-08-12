@@ -200,7 +200,7 @@ function install_bupstash {
 	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/bupstash-${lastest_version}-src+deps.tar.gz" || log_quit "Cannot download bupstash"
 	tar xvf "bupstash-${lastest_version}-src+deps.tar.gz"
 	cargo build --release
-	cp target/release/bupstash "${BACKUP_BENCH_ROOT}/bin/"
+	cp target/release/bupstash "${BIN_DIR}/"
 
 	log "Installed bupstash $(get_version_bupstash)" "NOTICE"
 }
@@ -260,8 +260,8 @@ function install_borg {
 	#python3.9 -m pip install borgbackup
 
 	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.34
-	curl -o "${BACKUP_BENCH_ROOT}/bin/borg" -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/borg-linux-glibc231" || log_quit "Cannot download borg"
-	chmod 755 "${BACKUP_BENCH_ROOT}/bin/borg"
+	curl -o "${BIN_DIR}/borg" -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/borg-linux-glibc231" || log_quit "Cannot download borg"
+	chmod 755 "${BIN_DIR}/borg"
 
 	log "Installed borg $(get_version_borg)" "NOTICE"
 }
@@ -272,8 +272,8 @@ function get_version_borg {
 
 function install_borg_beta {
 	log "Installing borg beta" "NOTICE"
-	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b22/borg-linux-glibc239-x86_64-gh -o "${BACKUP_BENCH_ROOT}/bin/borg_beta" || log_quit "Cannot download borg beta"
-	chmod 755 "${BACKUP_BENCH_ROOT}/bin/borg_beta"
+	curl -L https://github.com/borgbackup/borg/releases/download/2.0.0b22/borg-linux-glibc239-x86_64-gh -o "${BIN_DIR}/borg_beta" || log_quit "Cannot download borg beta"
+	chmod 755 "${BIN_DIR}/borg_beta"
 	log "Installed borg_beta $(get_version_borg_beta)" "NOTICE"
 }
 
@@ -296,10 +296,10 @@ function init_borg_repository {
 	# -e repokey means AES-CTR-256 and HMAC-SHA256, see https://borgbackup.readthedocs.io/en/stable/usage/init.html)
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
-		"${BACKUP_BENCH_ROOT}/bin/borg" init -e repokey --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" "${BORG_REPO}"
+		"${BIN_DIR}/borg" init -e repokey --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" "${BORG_REPO}"
 	else
 		export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
-		"${BACKUP_BENCH_ROOT}/bin/borg" init -e repokey "${BORG_REPO}"
+		"${BIN_DIR}/borg" init -e repokey "${BORG_REPO}"
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
@@ -315,10 +315,10 @@ function init_borg_beta_repository {
 	# --encrpytion=repokey-aes-ocb was found using borg_beta benchmark cpu
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
-		"${BACKUP_BENCH_ROOT}/bin/borg_beta" --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" repo-create --encryption=repokey-aes-ocb
+		"${BIN_DIR}/borg_beta" --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" repo-create --encryption=repokey-aes-ocb
 	else
 		export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
-		"${BACKUP_BENCH_ROOT}/bin/borg_beta" repo-create --encryption=repokey-aes-ocb
+		"${BIN_DIR}/borg_beta" repo-create --encryption=repokey-aes-ocb
 	fi
 	local result=$?
 	if [ "${result}" -ne 0 ]; then
@@ -376,8 +376,8 @@ function install_kopia {
 
 	curl -OL "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/kopia-${lastest_version:1}-linux-x64.tar.gz" || log_quit "Cannot download kopia"
 	tar xvf "kopia-${lastest_version:1}-linux-x64.tar.gz"
-	cp "kopia-${lastest_version:1}-linux-x64/kopia" "${BACKUP_BENCH_ROOT}/bin/kopia"
-	chmod +x "${BACKUP_BENCH_ROOT}/bin/kopia"
+	cp "kopia-${lastest_version:1}-linux-x64/kopia" "${BIN_DIR}/kopia"
+	chmod +x "${BIN_DIR}/kopia"
 
 	log "Installed kopia $(get_version_kopia)" "NOTICE"
 }
@@ -463,8 +463,8 @@ function install_restic_rest_server {
 
 	log "Installing restic rest-server ${lastest_version}" "NOTICE"
 	curl -o "${BACKUP_BENCH_ROOT}/rest-server.tar.gz" -L "https://github.com/restic/rest-server/releases/download/${lastest_version}/rest-server_${lastest_version:1}_linux_amd64.tar.gz" || loq_quit "Cannot download rest-server"
-	tar xvf "${BACKUP_BENCH_ROOT}/rest-server.tar.gz" --wildcards --no-anchored --transform='s/.*\///' -C "${BACKUP_BENCH_ROOT}/bin" 'rest-server'
-	chmod +x "${BACKUP_BENCH_ROOT}/bin/rest-server"
+	tar xvf "${BACKUP_BENCH_ROOT}/rest-server.tar.gz" --wildcards --no-anchored --transform='s/.*\///' -C "${BIN_DIR}" 'rest-server'
+	chmod +x "${BIN_DIR}/rest-server"
 }
 
 function init_restic_repository {
@@ -511,8 +511,8 @@ function install_rustic {
 	# musl build works
 	echo curl -o "${BACKUP_BENCH_ROOT}/rustic.tar.gz" -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz"
 	curl -o "${BACKUP_BENCH_ROOT}/rustic.tar.gz" -L "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/rustic-${lastest_version}-x86_64-unknown-linux-musl.tar.gz" || log_quit "Cannot download rustic"
-	tar xvf "${BACKUP_BENCH_ROOT}/rustic.tar.gz" --wildcards --no-anchored --transform='s/.*\///' -C "${BACKUP_BENCH_ROOT}/bin" 'rustic'
-	chmod +x "${BACKUP_BENCH_ROOT}/bin/rustic"
+	tar xvf "${BACKUP_BENCH_ROOT}/rustic.tar.gz" --wildcards --no-anchored --transform='s/.*\///' -C "${BIN_DIR}" 'rustic'
+	chmod +x "${BIN_DIR}/rustic"
 
 
 	log "Installed rustic $(get_version_rustic)" "NOTICE"
@@ -562,8 +562,8 @@ function install_duplicacy {
 	local lastest_version=$(get_lastest_git_release "${ORG}" "${REPO}")
 
 	log "Installing duplicacy ${lastest_version}" "NOTICE"
-	curl -L -o "${BACKUP_BENCH_ROOT}/bin/duplicacy" "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/duplicacy_linux_x64_${lastest_version:1}" || log_quit "Cannot download duplicacy"
-	chmod +x "${BACKUP_BENCH_ROOT}/bin/duplicacy"
+	curl -L -o "${BIN_DIR}/duplicacy" "https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/duplicacy_linux_x64_${lastest_version:1}" || log_quit "Cannot download duplicacy"
+	chmod +x "${BIN_DIR}/duplicacy"
 	log "Installed duplicacy $(get_version_duplicacy)" "NOTICE"
 }
 
@@ -1367,6 +1367,7 @@ done
 # Load configuration file
 source "${CONFIG_FILE}"
 mkdir -p "${LOG_DIR}" || exit 127
+mkdir "${BIN_DIR}" || exit 127
 cd "${BACKUP_BENCH_ROOT}" || exit 127
 log "Using configuration file ${CONFIG_FILE}" "NOTICE"
 
