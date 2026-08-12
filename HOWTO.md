@@ -1,11 +1,11 @@
 # How to setup backup-bench.sh yourself
 
-The backup-bench script supposes you have a source system with a RHEL 8/9 clone installed (PRs for other systems are welcome).
+The backup-bench script supposes you have a source system with a RHEL 8/9/10 clone installed (PRs for other systems are welcome).
 The default configuration will delete and create the following folders:
 
- - /opt/backup_test as the git dataset download folder
- - /backup-bench-repos as the folder which will contain backup repositories (local or on remote target)
- - /tmp/backup-bench-restore as the folder where backup restoration tests happen
+ - /opt/backup_bench/backup_test as the git dataset download folder
+ - /opt/backup_bench/backup-bench-repos as the folder which will contain backup repositories (local or on remote target)
+ - /opt/backup_bench/tmp/backup-bench-restore as the folder where backup restoration tests happen
 
 You can customize those settings in `backup-bench.conf` file.
 
