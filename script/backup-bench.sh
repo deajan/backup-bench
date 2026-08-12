@@ -1367,7 +1367,7 @@ done
 # Load configuration file
 source "${CONFIG_FILE}"
 mkdir -p "${LOG_DIR}" || exit 127
-mkdir "${BIN_DIR}" || exit 127
+[ ! -d "${BIN_DIR}" ] && mkdir -p "${BIN_DIR}" || exit 127
 cd "${BACKUP_BENCH_ROOT}" || exit 127
 log "Using configuration file ${CONFIG_FILE}" "NOTICE"
 
