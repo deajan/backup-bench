@@ -3,6 +3,8 @@
 - Added new parameter --backup-id-timestamp to deal with multiple non git backups
 - Tuned SSH a bit more (mostly done in sshd anyway)
 
+# version 2026081201
+
 # version 2022100201
 
 - Tune ZFS filesystem settings
@@ -10,8 +12,8 @@
 - Added debian compatibility (not tested)
 - Added duplicacy --threads 8 flag
 - Updated kopia to version 0.12.0
-- Try kopia s2-default compression algorith
-  - Revert back to zstd since file size was 60% bigger, meaning we'd get biased comparaison
+- Try kopia s2-default compression algorithm
+  - Revert back to zstd since file size was 60% bigger, meaning we'd get biased comparison
 - Added kopia --parallel 8 flag
 
 # version 2022090601

@@ -89,8 +89,8 @@ The following list is my personal shopping list when it comes to backup solution
 | **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | No, planned           | ?             |
 | **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | [Yes](https://forum.duplicacy.com/t/pre-command-and-post-command-scripts/1100)             |
 | **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
-| **Misc**                           | Does the backup sofware provide an automatic GFS system ?                | Yes                   | [Yes](https://restic.readthedocs.io/en/stable/060_forget.html#removing-snapshots-according-to-a-policy)             | Yes                                        | No                    | ?             |
-| **Misc**                           | Does the backup sofware provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
+| **Misc**                           | Does the backup software provide an automatic GFS system ?                | Yes                   | [Yes](https://restic.readthedocs.io/en/stable/060_forget.html#removing-snapshots-according-to-a-policy)             | Yes                                        | No                    | ?             |
+| **Misc**                           | Does the backup software provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
 | **Misc**                           | Can a repo be synchronized to another repo ?                             | ?                     | ?              | Yes                                        | Yes                   | Yes           |
 
 - (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
@@ -174,7 +174,7 @@ Remarks:
 - With restic's recent release 0.14.0, the remote speeds using rest-server increased dramatically and are onpar with local backup results.
 - All other programs take about 5-10x more time to restore than the initial backup, except for duplicacy, which has a 30x factor which is really bad
 - Since [last benchmark series](RESULTS-20220906.md), kopia 0.2.0 was released which resolves the [remote bottleneck](https://github.com/kopia/kopia/issues/2372)
-- I finally switchted from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
+- I finally switched from ZFS to XFS remote filesystem so we have comparable file sizes between local and remote backups
 - Noticing bad restore results, I've tried to tweak the SSH server:
   - The best cipher algorithm on my repository server was chacha-poly1305 (found with https://gist.github.com/joeharr4/c7599c52f9fad9e53f62e9c8ae690e6b)
   - Compression disabled

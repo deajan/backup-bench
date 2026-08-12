@@ -411,7 +411,7 @@ function init_kopia_repository {
 		fi
 	else
 		kopia repository create filesystem --path=${TARGET_ROOT}/kopia/data
-		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overrided.
+		# Set default zstd compression for *ALL* non kopia server repositories (needs to be done serverside). Can be overridden.
 		kopia policy set --global --compression zstd
 		kopia policy set --global --add-ignore '.git' --add-ignore '.duplicacy'
 	fi
@@ -691,7 +691,7 @@ function restore_borg {
 
 	Logger "Launching borg restore. Remote: ${remotely}." "NOTICE"
 	cd "${RESTORE_DIR}" || return 127
-	# We'll use --noacls and --noxattrs to make sure we have same functionnality as others
+	# We'll use --noacls and --noxattrs to make sure we have same functionnlity as others
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="$BORG_STABLE_REPO_REMOTE"
 		borg extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs ${BORG_REPO}::"${backup_id}" >> /var/log/${PROGRAM}.borg_tests.log 2>&1
@@ -730,7 +730,7 @@ function restore_borg_beta {
 
 	Logger "Launching borg_beta restore. Remote: ${remotely}." "NOTICE"
 	cd "${RESTORE_DIR}" || return 127
-	# We'll use --noacls and --noxattrs to make sure we have same functionnality as others
+	# We'll use --noacls and --noxattrs to make sure we have same functionality as others
 	if [ "${remotely}" == true ]; then
 		export BORG_REPO="$BORG_BETA_REPO_REMOTE"
 		borg_beta extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> /var/log/${PROGRAM}.borg_beta_tests.log 2>&1
@@ -1053,7 +1053,7 @@ function serve_http_targets {
 	# add acls for user
 	cmd="kopia server users add ${KOPIA_HTTP_USERNAME}@backup-bench-source --user-password=${KOPIA_HTTP_PASSWORD}"
 	eval $cmd
-	Logger "Adding kopia user woth following command:\n$cmd" "NOTICE"
+	Logger "Adding kopia user with following command:\n$cmd" "NOTICE"
 	# reload server
 	cmd="kopia server refresh --address https://localhost:${KOPIA_HTTP_PORT} --server-cert-fingerprint=$(get_certificate_fingerprint \"${HOME}/https_backup-bench.crt\")  --server-control-username=${KOPIA_SERVER_CONTROL_USER} --server-control-password=${KOPIA_SERVER_CONTROL_PASSWORD}"
 	Logger "Running kopia refresh with following command:\n$cmd" "NOTICE"
@@ -1116,7 +1116,7 @@ function benchmark_backup_git {
 	# Backup that kernel
 	for tag in "${GIT_TAGS[@]}"; do
 
-		# Thanks to duplicacy who tampers with backup root conntent by adding '.duplicacy'... we need to save .duplicacy directory before every git checkout in order not to loose the files
+		# Thanks to duplicacy who tampers with backup root content by adding '.duplicacy'... we need to save .duplicacy directory before every git checkout in order not to loose the files
 		#alias cp=cp && cp -R "${BACKUP_ROOT}/.duplicacy" "/tmp/backup_bench.duplicacy"
 		# Make sure we always we checkout a specific kernel version so results are reproductible
 		git checkout "${tag}"
@@ -1192,7 +1192,7 @@ function benchmark_restore_standard {
 		diff -x .git -x .duplicacy -qr "${restored_path}" "${BACKUP_ROOT}/"
 		result=$?
 		if [ "${result}" -ne 0 ]; then
-			Logger "Failure with exit code $result for restore comparaison." "CRITICAL"
+			Logger "Failure with exit code $result for restore comparison." "CRITICAL"
 		else
 			Logger "Restored files match source." "NOTICE"
 		fi
@@ -1265,7 +1265,7 @@ function usage {
 	echo "--benchmark-backup		Run backup benchmarks using local (or remote with --remote) repositories"
 	echo "--benchmark-restore		Run restore benchmarks using local (or remote with --remote) repositories, restores to local restore path"
 	echo "--benchmarks	        	Run both backup and restore benchmark using local (or remote with --remote) repositories and local restore path"
-	echo "--all				Clear, init and run bakcup with git dataset for both local and remote targets"
+	echo "--all				Clear, init and run backup with git dataset for both local and remote targets"
 	echo ""
 	echo "MODIFIERS"
 	echo "--git				Use git dataset (multiple version benchmark)"
