@@ -1,6 +1,7 @@
 # How to setup backup-bench.sh yourself
 
-The backup-bench script supposes you have a source system with a RHEL 8/9/10 clone installed (PRs for other systems are welcome).
+The backup-bench script supposes you have a source system with a RHEL 9/10 clone installed (PRs for other systems are welcome).
+RHEL 8 has been removed since it's glibc version is too low for borg beta, and well, it's old ;)
 The default configuration will delete and create the following folders:
 
  - /opt/backup_bench/backup_test as the git dataset download folder
