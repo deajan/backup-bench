@@ -1047,11 +1047,11 @@ function init_repositories {
 	# The only reason we need to setup our dataset before being able to init the backup repositories is because duplicacy needs an existing source dir to init it's repo...
 	[ "${git}" == true ] && setup_git_dataset
 
-	if [ ! -d "${BACKUP_ROOT}" ]; then
-		log "Backup root ${BACKUP_ROOT} does not exist. Either create it and add test content, or use --git to initialize it." "CRITICAL"
-		exit 3
+	if [ -d "${BACKUP_ROOT}" ]; then
+		log "Clearing previous backup root ${BACKUP_ROOT} content." "NOTICE"
+		rm -rf "${BACKUP_ROOT}"
 	fi
-
+	mkdir -p "${BACKUP_ROOT}" || log_quit "Cannot create backup root ${BACKUP_ROOT}"
 	log "Initializing reposiories. Remote: ${remotely}." "NOTICE"
 	for backup_software in "${BACKUP_SOFTWARES[@]}"; do
 		init_"${backup_software}"_repository "${remotely}"
