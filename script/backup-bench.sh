@@ -264,7 +264,7 @@ function install_borg {
 	#python3.9 -m pip install borgbackup
 
 	# borg-linuxnew64 uses GLIBC 2.39 as of 20220905 whereas RHEL9 uses GLIBC 2.34l
-	url="https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}borg-linux-glibc231-x86_64"
+	url="https://github.com/${ORG}/${REPO}/releases/download/${lastest_version}/borg-linux-glibc231-x86_64"
 	log "Downloading ${url}" "NOTICE"
 	curl -o "${BIN_DIR}/borg" -L "${url}" || log_quit "Cannot download borg"
 	chmod 755 "${BIN_DIR}/borg"
