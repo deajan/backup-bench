@@ -9,8 +9,7 @@
 #
 # WHAT IS MEASURED
 #
-# For every backup program, against both a local and a remote (SSH/SFTP)
-# repository, the script measures:
+# For every backup program, against every storage backend, the script measures:
 #   - the time needed to back up the dataset
 #   - the resulting repository size
 #   - the time needed to restore that backup
@@ -25,6 +24,26 @@
 # agent (netdata, ...) alongside the script if you also want cpu/memory/io
 # figures per program.
 #
+# STORAGE BACKENDS
+#
+# The backend is chosen with --backend=<name>, --local and --remote being kept as
+# aliases of local and sftp:
+#
+#   local   repositories on a local filesystem path below ${TARGET_ROOT}
+#   sftp    repositories on the remote target, reached over SSH. Each program uses
+#           whatever it speaks best: its own protocol over ssh (borg, bupstash),
+#           sftp (kopia, restic, rustic, duplicacy, plakar) or, when the matching
+#           *_USE_HTTP option is enabled, an https server running on the target
+#           (kopia server, rest-server)
+#   s3      repositories in S3 buckets, one bucket per program. backup-bench does
+#           not install nor manage an S3 server: it uses the endpoint configured in
+#           S3_ENDPOINT, which can be MinIO, Garage, Ceph RGW, Wasabi, AWS, ...
+#
+# Not every program can reach every backend: bupstash only speaks its own protocol
+# over ssh, and borg 1.x has no object storage support. Both are therefore skipped
+# during an s3 run and get "n/a" in the results instead of a timing. Programs
+# unable to reach a backend are declared in ${UNSUPPORTED_BACKENDS} below.
+#
 # KEEPING THE COMPARISON FAIR
 #
 #   - the page cache (and the ZFS ARC) is dropped before every single backup and
@@ -37,6 +56,8 @@
 #   - programs that can use multiple threads are given 8 of them
 #   - restores skip ACLs / xattrs / ownership when the program can, so all of
 #     them do a comparable amount of work
+#   - one backend at a time: mixing transports inside a run would make the
+#     numbers of that run incomparable
 #
 # HOW BACKUP PROGRAMS ARE PLUGGED IN
 #
@@ -47,15 +68,15 @@
 #
 #   install_<name>            downloads / builds the binary into ${BIN_DIR}
 #   get_version_<name>        echoes the version string (used in CSV headers)
-#   init_<name>_repository    creates an empty repository        (arg: remotely)
-#   clear_<name>_repository   destroys the repository            (arg: remotely)
-#   backup_<name>             creates a backup    (args: remotely, backup_id)
-#   restore_<name>            restores a backup   (args: remotely, backup_id)
+#   init_<name>_repository    creates an empty repository        (arg: backend)
+#   clear_<name>_repository   destroys the repository            (arg: backend)
+#   backup_<name>             creates a backup    (args: backend, backup_id)
+#   restore_<name>            restores a backup   (args: backend, backup_id)
 #
-# 'remotely' is the string "true" or "false" and tells the function whether to
-# work on the local or on the remote target repository. 'backup_id' identifies
-# one backup (an archive name, a tag, ... depending on the program) and is used
-# again at restore time to find that backup back.
+# 'backend' is one of the names listed above and tells the function which
+# repository to work on. 'backup_id' identifies one backup (an archive name, a
+# tag, ... depending on the program) and is used again at restore time to find
+# that backup back.
 #
 # Two more functions are optional and only called when they exist:
 #
@@ -63,6 +84,12 @@
 #   setup_ssh_<name>_server   restricts the target authorized_keys to a serve
 #                             command, for programs that speak their own protocol
 #                             over ssh (borg, borg_beta, bupstash)
+#
+# By convention each program also has one helper turning a backend name into the
+# arguments or the environment that program needs to reach its repository
+# (set_restic_repo_args, get_duplicacy_storage_url, connect_kopia_repository, ...).
+# Keeping that in a single place per program is what makes init/backup/restore
+# one-liners, and what makes adding a backend cheap.
 #
 # So why are there so many nearly identical functions instead of one generic one?
 # Because every program ends up needing its own quirks, and one function per
@@ -79,10 +106,22 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2026 by Orsiris de Jong"
-PROGRAM_BUILD=2026081801
+PROGRAM_BUILD=2026081802
 
 # Configuration files older than this one lack settings this script needs
-MINIMUM_CONF_VERSION=2026081801
+MINIMUM_CONF_VERSION=2026081802
+
+# Programs that cannot reach every backend. Anything not listed here is assumed to
+# support all of them.
+#   bupstash: only speaks the bupstash protocol over ssh, no object storage
+#   borg:     borg 1.x has no object storage support (borg 2.x has, via borgstore)
+declare -A UNSUPPORTED_BACKENDS=(
+        [bupstash]="s3"
+        [borg]="s3"
+)
+
+# Alias under which the mc client knows our endpoint, see export_s3_credentials
+S3_MC_ALIAS="backupbench"
 
 ###############################################################################
 # Generic helpers
@@ -140,30 +179,58 @@ function check_snapshot_id {
         return 0
 }
 
+function supports_backend {
+        # Programs listed in ${UNSUPPORTED_BACKENDS} cannot reach the given backend.
+        # Anything not listed is assumed to support all of them
+        local backup_software="${1}"
+        local backend="${2}"
+        local unsupported="${UNSUPPORTED_BACKENDS[${backup_software}]}"
+
+        [ -z "${unsupported}" ] && return 0
+        case " ${unsupported} " in
+                *" ${backend} "*)
+                return 1
+                ;;
+        esac
+        return 0
+}
+
 function run_on_target {
-        # Runs a shell command where the repositories live: locally, or on the remote
-        # target over ssh when ${1} is true
-        local remotely="${1}"
+        # Runs a shell command where the repositories live: locally for the local
+        # backend, on the remote target over ssh otherwise.
+        # The s3 backend has no shell, its repositories are handled with the mc client
+        local backend="${1}"
         local cmd="${2}"
 
-        if [ "${remotely}" == true ]; then
-                ${REMOTE_SSH_RUNNER} "${cmd}"
-        else
+        if [ "${backend}" == local ]; then
                 eval "${cmd}"
+        else
+                ${REMOTE_SSH_RUNNER} "${cmd}"
         fi
 }
 
 function drop_caches {
         # Timings are only comparable when nothing is served from RAM, so we flush the
         # page cache (which also drops the zfs arc) on both ends before each measure
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
+        local drop_remote=false
 
         if [ -w /proc/sys/vm/drop_caches ]; then
                 sync && echo 3 > /proc/sys/vm/drop_caches
         else
                 log "Cannot drop local caches, timings will be biased." "WARN"
         fi
-        if [ "${remotely}" == true ]; then
+
+        case "${backend}" in
+                sftp)
+                drop_remote=true
+                ;;
+                s3)
+                # We only know how to reach the S3 server's shell when it runs on our target
+                drop_remote="${S3_DROP_TARGET_CACHES}"
+                ;;
+        esac
+        if [ "${drop_remote}" == true ]; then
                 ${REMOTE_SSH_RUNNER} "sync && echo 3 > /proc/sys/vm/drop_caches" || log "Cannot drop caches on remote target, timings will be biased." "WARN"
         fi
         return 0
@@ -267,6 +334,137 @@ function create_certificate {
 }
 
 ###############################################################################
+# S3 backend helpers
+#
+# backup-bench is only an S3 *client*: it never installs nor configures a server.
+# The mc client is used for the three things a benchmark cannot do without and
+# that no backup program offers: creating the buckets, emptying them between runs,
+# and measuring how much data a repository holds. Everything else works without
+# mc, you then take care of those three yourself.
+###############################################################################
+
+function get_s3_scheme {
+        if [ "${S3_USE_TLS}" == true ]; then
+                echo "https"
+        else
+                echo "http"
+        fi
+}
+
+function get_s3_url {
+        # Endpoint with its scheme, the form restic, rustic and borg expect
+        echo "$(get_s3_scheme)://${S3_ENDPOINT}"
+}
+
+function get_s3_bucket {
+        # One bucket per program. S3 bucket names hold neither underscores nor
+        # uppercase, so borg_beta ends up in ${S3_BUCKET_PREFIX}borg-beta
+        local backup_software="${1}"
+
+        echo "${S3_BUCKET_PREFIX}$(echo "${backup_software}" | tr '_' '-' | tr '[:upper:]' '[:lower:]')"
+}
+
+function export_s3_credentials {
+        # Every program reads its S3 credentials from its own environment variables
+        local mc_host
+
+        export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY}"          # restic, kopia, rustic (opendal)
+        export AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY}"
+        export AWS_DEFAULT_REGION="${S3_REGION}"
+        export DUPLICACY_S3_ID="${S3_ACCESS_KEY}"            # duplicacy
+        export DUPLICACY_S3_SECRET="${S3_SECRET_KEY}"
+
+        # mc reads MC_HOST_<alias> from the environment, which saves us from writing
+        # an alias into its configuration file
+        mc_host="$(get_s3_scheme)://${S3_ACCESS_KEY}:${S3_SECRET_KEY}@${S3_ENDPOINT}"
+        # shellcheck disable=SC2163  # this exports MC_HOST_<alias>, not ${S3_MC_ALIAS} itself
+        export "MC_HOST_${S3_MC_ALIAS}=${mc_host}"
+}
+
+function install_s3_client {
+        # mc is the MinIO client, and talks to any S3 compatible endpoint.
+        # It is not published through github releases, hence the fixed url
+        local url="https://dl.min.io/client/mc/release/linux-amd64/mc"
+
+        log "Installing S3 client (mc) from ${url}" "NOTICE"
+        curl -f -L -o "${BIN_DIR}/mc" "${url}" || log_quit "Cannot download mc" "CRITICAL"
+        chmod +x "${BIN_DIR}/mc"
+        log "Installed S3 client $("${BIN_DIR}/mc" --version 2>/dev/null | head -n 1)" "NOTICE"
+}
+
+function have_s3_client {
+        if [ ! -x "${BIN_DIR}/mc" ]; then
+                log "No S3 client in [${BIN_DIR}/mc]. Install it with --install-s3-client, or create, empty and measure the buckets yourself." "WARN"
+                return 1
+        fi
+        return 0
+}
+
+function run_mc {
+        local mc_opts=()
+
+        [ "${S3_TLS_INSECURE}" == true ] && mc_opts+=(--insecure)
+        "${BIN_DIR}/mc" "${mc_opts[@]}" "${@}"
+}
+
+function setup_s3_buckets {
+        # Creates one bucket per program able to use the s3 backend
+        local backup_software
+        local bucket
+
+        [ -z "${S3_ENDPOINT}" ] && log_quit "S3_ENDPOINT is not configured." "CRITICAL"
+        have_s3_client || log_quit "Cannot create buckets without an S3 client." "CRITICAL"
+        export_s3_credentials
+
+        for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+                if ! supports_backend "${backup_software}" s3; then
+                        log "Skipping bucket for ${backup_software}: it has no s3 backend." "NOTICE"
+                        continue
+                fi
+                bucket="$(get_s3_bucket "${backup_software}")"
+                log "Creating bucket [${bucket}] on ${S3_ENDPOINT}" "NOTICE"
+                run_mc mb --ignore-existing "${S3_MC_ALIAS}/${bucket}"
+                check_result $? "bucket ${bucket} creation"
+        done
+}
+
+function clear_s3_bucket {
+        # Empties the program's bucket, the s3 equivalent of removing a repository
+        # directory
+        local backup_software="${1}"
+        local bucket
+
+        bucket="$(get_s3_bucket "${backup_software}")"
+        if ! have_s3_client; then
+                log "Please empty bucket [${bucket}] yourself before benchmarking again." "WARN"
+                return 1
+        fi
+        export_s3_credentials
+
+        log "Emptying bucket [${bucket}]" "NOTICE"
+        # mc rm exits non zero on an already empty bucket, which is not an error for us
+        run_mc rm --recursive --force --quiet "${S3_MC_ALIAS}/${bucket}/" > /dev/null 2>&1
+        run_mc mb --ignore-existing "${S3_MC_ALIAS}/${bucket}" > /dev/null 2>&1
+        return 0
+}
+
+function get_s3_repo_size {
+        # Echoes the size of every object in the program's bucket, in kilobytes.
+        # We sum the sizes 'mc ls --json' reports rather than use 'mc du', which only
+        # prints human readable units we would have to parse back
+        local backup_software="${1}"
+        local bucket
+
+        bucket="$(get_s3_bucket "${backup_software}")"
+        if ! have_s3_client; then
+                echo 0
+                return 0
+        fi
+        export_s3_credentials
+        run_mc ls --recursive --json "${S3_MC_ALIAS}/${bucket}" 2>/dev/null | sed -n 's/.*"size":\([0-9]*\).*/\1/p' | awk '{total += $1} END {printf "%d\n", total / 1024}'
+}
+
+###############################################################################
 # Target and source system setup
 ###############################################################################
 
@@ -281,6 +479,7 @@ function upload_to_source {
 }
 
 function close_source_ssh_master {
+        ssh -O exit -o "ControlPath=/tmp/${PROGRAM}.ctrlm.$$" "${SOURCE_USER}@${SOURCE_FQDN}" > /dev/null 2>&1
         rm -f "/tmp/${PROGRAM}.ctrlm.$$"
 }
 
@@ -304,7 +503,12 @@ function setup_root_access {
 
         [ ! -d /root/.ssh ] && mkdir -p /root/.ssh && chmod 700 /root/.ssh
         [ -f "${key_file}" ] && rm -f "${key_file}" "${key_file}.pub"
-        ssh-keygen -b 2048 -t rsa -f "${key_file}" -q -N ""
+        ssh-keygen -b 2048 -t rsa -f "${key_file}" -q -N "" -C "backup-bench"
+        # Drop the key an earlier run added, so repeated runs don't pile them up
+        if [ -f /root/.ssh/authorized_keys ]; then
+                grep -v " backup-bench$" /root/.ssh/authorized_keys > "/root/.ssh/authorized_keys.${PROGRAM}.tmp"
+                mv -f "/root/.ssh/authorized_keys.${PROGRAM}.tmp" /root/.ssh/authorized_keys
+        fi
         cat "${key_file}.pub" >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
         type -p semanage > /dev/null 2>&1 && semanage fcontext -a -t ssh_home_t /root/.ssh/authorized_keys > /dev/null 2>&1
         type -p restorecon > /dev/null 2>&1 && restorecon -v /root/.ssh/authorized_keys
@@ -375,6 +579,7 @@ function setup_target_remote_repos {
 # - speaks its own protocol over ssh, the target needs a forced serve command
 # - keys are files instead of environment variables: we back up with a put-only
 #   sub key and restore with the master key, like a real setup would
+# - has no object storage support at all, so it is skipped on the s3 backend
 ###############################################################################
 
 function install_bupstash {
@@ -431,52 +636,52 @@ function setup_ssh_bupstash_server {
 function set_bupstash_repository {
         # bupstash uses BUPSTASH_REPOSITORY for local repositories and
         # BUPSTASH_REPOSITORY_COMMAND for remote ones, and only one of them may be set
-        local remotely="${1}"
+        local backend="${1}"
 
-        if [ "${remotely}" == true ]; then
-                export BUPSTASH_REPOSITORY_COMMAND="${BUPSTASH_REPOSITORY_COMMAND_REMOTE}"
-                unset BUPSTASH_REPOSITORY
-        else
+        if [ "${backend}" == local ]; then
                 export BUPSTASH_REPOSITORY="${BUPSTASH_REPOSITORY_LOCAL}"
                 unset BUPSTASH_REPOSITORY_COMMAND
+        else
+                export BUPSTASH_REPOSITORY_COMMAND="${BUPSTASH_REPOSITORY_COMMAND_REMOTE}"
+                unset BUPSTASH_REPOSITORY
         fi
 }
 
 function init_bupstash_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Initializing bupstash repository. Remote: ${remotely}." "NOTICE"
-        set_bupstash_repository "${remotely}"
+        log "Initializing bupstash repository. Backend: ${backend}." "NOTICE"
+        set_bupstash_repository "${backend}"
         "${BIN_DIR}/bupstash" init
         check_result $? "bupstash repository initialization" true
 }
 
 function clear_bupstash_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
         # bupstash expects the directory not to exist in order to serve it via bupstash
         # serve, or even just to init it, since v0.12
-        log "Clearing bupstash repository. Remote: ${remotely}." "NOTICE"
+        log "Clearing bupstash repository. Backend: ${backend}." "NOTICE"
         local cmd="rm -rf \"${TARGET_ROOT:?}/bupstash\"; mkdir ${TARGET_ROOT:?}/bupstash; if getent passwd | grep bupstash_user > /dev/null; then chown bupstash_user \"${TARGET_ROOT}/bupstash\"; fi"
-        run_on_target "${remotely}" "${cmd}"
+        run_on_target "${backend}" "${cmd}"
 }
 
 function backup_bupstash {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching bupstash backup. Remote: ${remotely}." "NOTICE"
-        set_bupstash_repository "${remotely}"
+        log "Launching bupstash backup. Backend: ${backend}." "NOTICE"
+        set_bupstash_repository "${backend}"
         "${BIN_DIR}/bupstash" put --compression zstd:3 --exclude '.git' --print-file-actions --print-stats "BACKUPID=${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.bupstash.log" 2>&1
         check_result $? "bupstash backup"
 }
 
 function restore_bupstash {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching bupstash restore. Remote: ${remotely}." "NOTICE"
-        set_bupstash_repository "${remotely}"
+        log "Launching bupstash restore. Backend: ${backend}." "NOTICE"
+        set_bupstash_repository "${backend}"
 
         # The put-only sub key cannot read data back, so restores use the master key
         export BUPSTASH_KEY="${SOURCE_USER_HOMEDIR}/bupstash.master.key"
@@ -491,6 +696,8 @@ function restore_bupstash {
 # - speaks its own protocol over ssh, the target needs a forced serve command
 # - -e repokey means AES-CTR-256 and HMAC-SHA256
 #   see https://borgbackup.readthedocs.io/en/stable/usage/init.html
+# - 1.x knows only local paths and ssh. Object storage arrived with borg 2 and
+#   borgstore, so borg stable is skipped on the s3 backend
 ###############################################################################
 
 function install_borg {
@@ -523,60 +730,59 @@ function setup_ssh_borg_server {
         echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg/data; ${BIN_DIR}/borg serve --restrict-to-path ${TARGET_ROOT}/borg/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat "${TARGET_ROOT}/borg/.ssh/authorized_keys")" > "${TARGET_ROOT}/borg/.ssh/authorized_keys"
 }
 
-function init_borg_repository {
-        local remotely="${1:-false}"
+function set_borg_repo_args {
+        # Exports ${BORG_REPO} and fills ${REPO_ARGS} with the --rsh option needed to
+        # reach a repository over ssh
+        local backend="${1}"
 
-        log "Initializing borg repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
-                "${BIN_DIR}/borg" init -e repokey --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" "${BORG_REPO}"
-        else
+        REPO_ARGS=()
+        if [ "${backend}" == local ]; then
                 export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
-                "${BIN_DIR}/borg" init -e repokey "${BORG_REPO}"
+        else
+                export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
+                REPO_ARGS=(--rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new")
         fi
+}
+
+function init_borg_repository {
+        local backend="${1:-local}"
+
+        log "Initializing borg repository. Backend: ${backend}." "NOTICE"
+        set_borg_repo_args "${backend}"
+        "${BIN_DIR}/borg" init "${REPO_ARGS[@]}" -e repokey "${BORG_REPO}"
         check_result $? "borg repository initialization" true
 }
 
 function clear_borg_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing borg repository. Remote: ${remotely}." "NOTICE"
+        log "Clearing borg repository. Backend: ${backend}." "NOTICE"
         # borg expects the data directory to already exist in order to serve it via borg serve
         local cmd="rm -rf \"${TARGET_ROOT:?}/borg/data\"; mkdir -p \"${TARGET_ROOT}/borg/data\"; if getent passwd | grep borg_user > /dev/null; then chown borg_user \"${TARGET_ROOT}/borg/data\"; fi"
-        run_on_target "${remotely}" "${cmd}"
+        run_on_target "${backend}" "${cmd}"
 }
 
 function backup_borg {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg backup. Remote: ${remotely}." "NOTICE"
+        log "Launching borg backup. Backend: ${backend}." "NOTICE"
+        set_borg_repo_args "${backend}"
         # Exclusion patterns can be checked with borg create --list --dry-run --exclude ...
-        if [ "${remotely}" == true ]; then
-                export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
-                "${BIN_DIR}/borg" create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
-        else
-                export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
-                "${BIN_DIR}/borg" create --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
-        fi
+        "${BIN_DIR}/borg" create "${REPO_ARGS[@]}" --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
         check_result $? "borg backup"
 }
 
 function restore_borg {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg restore. Remote: ${remotely}." "NOTICE"
+        log "Launching borg restore. Backend: ${backend}." "NOTICE"
+        set_borg_repo_args "${backend}"
         # borg extracts relative to the current directory
         cd "${RESTORE_DIR}" || return 127
         # --noacls and --noxattrs keep the restore comparable with the other programs
-        if [ "${remotely}" == true ]; then
-                export BORG_REPO="${BORG_STABLE_REPO_REMOTE}"
-                "${BIN_DIR}/borg" extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${BORG_REPO}"::"${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
-        else
-                export BORG_REPO="${BORG_STABLE_REPO_LOCAL}"
-                "${BIN_DIR}/borg" extract --noacls --noxattrs "${BORG_REPO}"::"${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
-        fi
+        "${BIN_DIR}/borg" extract "${REPO_ARGS[@]}" --noacls --noxattrs "${BORG_REPO}"::"${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
         check_result $? "borg restore"
 }
 
@@ -588,8 +794,10 @@ function restore_borg {
 #   'releases/latest' api endpoint does not return
 # - the binary needs glibc >= 2.39, so RHEL 9 clones cannot run it
 # - the 2.x CLI differs from 1.x: 'repo-create' instead of 'init', no repository
-#   in the archive name, --encryption instead of -e
+#   in the archive name, --encryption instead of -e, options before the command
 # - aes256-ocb was picked by running 'borg_beta benchmark cpu' on the source
+# - borg 2 reaches object storage through borgstore, whose s3 URL carries the
+#   credentials: s3:KEY:SECRET@scheme://host:port/bucket/path
 ###############################################################################
 
 function install_borg_beta {
@@ -613,67 +821,78 @@ function setup_ssh_borg_beta_server {
         echo "$(echo -n "command=\"cd ${TARGET_ROOT}/borg_beta/data; ${BIN_DIR}/borg_beta serve --restrict-to-path ${TARGET_ROOT}/borg_beta/data\",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty,no-user-rc "; cat "${TARGET_ROOT}/borg_beta/.ssh/authorized_keys")" > "${TARGET_ROOT}/borg_beta/.ssh/authorized_keys"
 }
 
-function init_borg_beta_repository {
-        local remotely="${1:-false}"
+function set_borg_beta_repo_args {
+        # Exports ${BORG_REPO} and fills ${REPO_ARGS} with the global options borg 2
+        # expects before its command
+        local backend="${1}"
 
-        log "Initializing borg_beta repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
+        REPO_ARGS=()
+        case "${backend}" in
+                s3)
+                export BORG_REPO="s3:${S3_ACCESS_KEY}:${S3_SECRET_KEY}@$(get_s3_url)/$(get_s3_bucket borg_beta)/data"
+                ;;
+                sftp)
                 export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
-                "${BIN_DIR}/borg_beta" --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new" repo-create --encryption=aes256-ocb
-        else
+                REPO_ARGS=(--rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -o StrictHostKeyChecking=accept-new")
+                ;;
+                *)
                 export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
-                "${BIN_DIR}/borg_beta" repo-create --encryption=aes256-ocb
-        fi
+                ;;
+        esac
+}
+
+function init_borg_beta_repository {
+        local backend="${1:-local}"
+
+        log "Initializing borg_beta repository. Backend: ${backend}." "NOTICE"
+        set_borg_beta_repo_args "${backend}"
+        "${BIN_DIR}/borg_beta" "${REPO_ARGS[@]}" repo-create --encryption=aes256-ocb
         check_result $? "borg_beta repository initialization" true
 }
 
 function clear_borg_beta_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing borg_beta repository. Remote: ${remotely}." "NOTICE"
+        log "Clearing borg_beta repository. Backend: ${backend}." "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                clear_s3_bucket borg_beta
+                return $?
+        fi
         # borg expects the data directory to already exist in order to serve it via borg serve
         local cmd="rm -rf \"${TARGET_ROOT:?}/borg_beta/data\"; mkdir -p \"${TARGET_ROOT}/borg_beta/data\"; if getent passwd | grep borg_beta_user > /dev/null; then chown borg_beta_user \"${TARGET_ROOT}/borg_beta/data\"; fi"
-        run_on_target "${remotely}" "${cmd}"
+        run_on_target "${backend}" "${cmd}"
 }
 
 function backup_borg_beta {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg_beta backup. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
-                "${BIN_DIR}/borg_beta" create --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT}" --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
-        else
-                export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
-                "${BIN_DIR}/borg_beta" create --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
-        fi
+        log "Launching borg_beta backup. Backend: ${backend}." "NOTICE"
+        set_borg_beta_repo_args "${backend}"
+        "${BIN_DIR}/borg_beta" "${REPO_ARGS[@]}" create --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
         check_result $? "borg_beta backup"
 }
 
 function restore_borg_beta {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg_beta restore. Remote: ${remotely}." "NOTICE"
+        log "Launching borg_beta restore. Backend: ${backend}." "NOTICE"
+        set_borg_beta_repo_args "${backend}"
         # borg extracts relative to the current directory
         cd "${RESTORE_DIR}" || return 127
         # --noacls and --noxattrs keep the restore comparable with the other programs
-        if [ "${remotely}" == true ]; then
-                export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
-                "${BIN_DIR}/borg_beta" extract --rsh "ssh -i ${SOURCE_USER_HOMEDIR}/.ssh/borg_beta.key -p ${REMOTE_TARGET_SSH_PORT}" --noacls --noxattrs "${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
-        else
-                export BORG_REPO="${BORG_BETA_REPO_LOCAL}"
-                "${BIN_DIR}/borg_beta" extract --noacls --noxattrs "${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
-        fi
+        "${BIN_DIR}/borg_beta" "${REPO_ARGS[@]}" extract --noacls --noxattrs "${backup_id}" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
         check_result $? "borg_beta restore"
 }
 
 ###############################################################################
 # kopia
 #
-# - can either be reached over sftp, or run as an https server on the target
-#   (KOPIA_USE_HTTP), which is why it is also installed on the target
+# - reached over sftp, as an https server on the target (KOPIA_USE_HTTP) or on S3,
+#   which is why it is also installed on the target
+# - the repository connection is kept in a local configuration file, so every
+#   operation starts by reconnecting to the right repository
 # - compression and exclusions are repository side policies, not backup flags
 # - block hash and encryption were picked with 'kopia benchmark crypto'
 # - zstd is used rather than s2-default: s2 produced 60% bigger repositories,
@@ -705,12 +924,23 @@ function get_version_kopia {
         "${BIN_DIR}/kopia" --version | awk '{print $1}'
 }
 
-function connect_kopia_repository {
-        # kopia keeps its repository connection in a local config file, so every
-        # operation starts by (re)connecting to the right repository
-        local remotely="${1}"
+function set_kopia_s3_args {
+        # Fills ${REPO_ARGS} with the S3 arguments shared by 'repository create s3' and
+        # 'repository connect s3'. kopia wants an endpoint without any scheme
+        REPO_ARGS=("--bucket=$(get_s3_bucket kopia)" "--endpoint=${S3_ENDPOINT}" "--access-key=${S3_ACCESS_KEY}" "--secret-access-key=${S3_SECRET_KEY}" "--region=${S3_REGION}" "--prefix=data/")
+        [ "${S3_USE_TLS}" == false ] && REPO_ARGS+=(--disable-tls)
+        [ "${S3_TLS_INSECURE}" == true ] && REPO_ARGS+=(--disable-tls-verification)
+}
 
-        if [ "${remotely}" == true ]; then
+function connect_kopia_repository {
+        local backend="${1}"
+
+        case "${backend}" in
+                s3)
+                set_kopia_s3_args
+                "${BIN_DIR}/kopia" repository connect s3 "${REPO_ARGS[@]}"
+                ;;
+                sftp)
                 if [ "${KOPIA_USE_HTTP}" == true ]; then
                         "${BIN_DIR}/kopia" repository connect server "--url=https://${REMOTE_TARGET_FQDN}:${KOPIA_HTTP_PORT}" --server-cert-fingerprint="$(get_remote_certificate_fingerprint "${REMOTE_TARGET_FQDN}" "${KOPIA_HTTP_PORT}")" -p "${KOPIA_HTTP_PASSWORD}" "--override-username=${KOPIA_HTTP_USERNAME}" --override-hostname=backup-bench-source
                         # KOPIA_PASSWORD has to be empty in server mode, or operations fail
@@ -718,62 +948,82 @@ function connect_kopia_repository {
                 else
                         "${BIN_DIR}/kopia" repository connect sftp "--path=${TARGET_ROOT}/kopia/data" "--host=${REMOTE_TARGET_FQDN}" --port "${REMOTE_TARGET_SSH_PORT}" "--keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key" --username=kopia_user "--known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts"
                 fi
-        else
+                ;;
+                *)
                 "${BIN_DIR}/kopia" repository connect filesystem "--path=${TARGET_ROOT}/kopia/data"
-        fi
+                ;;
+        esac
+}
+
+function set_kopia_policies {
+        # Policies live in the repository, so they have to be set for every new one
+        local target="${1:---global}"
+
+        "${BIN_DIR}/kopia" policy set "${target}" --compression zstd
+        "${BIN_DIR}/kopia" policy set "${target}" --add-ignore '.git'
 }
 
 function init_kopia_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Initializing kopia repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
+        log "Initializing kopia repository. Backend: ${backend}." "NOTICE"
+        case "${backend}" in
+                s3)
+                set_kopia_s3_args
+                "${BIN_DIR}/kopia" repository create s3 "${REPO_ARGS[@]}"
+                check_result $? "kopia repository initialization" true
+                set_kopia_policies --global
+                ;;
+                sftp)
                 if [ "${KOPIA_USE_HTTP}" == true ]; then
                         # In http mode the repository is created by serve_http_targets on the
                         # target before the server starts, so we only connect to it here
-                        connect_kopia_repository true
-                        "${BIN_DIR}/kopia" policy set "${KOPIA_HTTP_USERNAME}@backup-bench-source" --compression zstd
-                        "${BIN_DIR}/kopia" policy set "${KOPIA_HTTP_USERNAME}@backup-bench-source" --add-ignore '.git'
+                        connect_kopia_repository sftp
+                        check_result $? "kopia repository connection" true
+                        set_kopia_policies "${KOPIA_HTTP_USERNAME}@backup-bench-source"
                 else
                         "${BIN_DIR}/kopia" repository create sftp "--path=${TARGET_ROOT}/kopia/data" "--host=${REMOTE_TARGET_FQDN}" --port "${REMOTE_TARGET_SSH_PORT}" "--keyfile=${SOURCE_USER_HOMEDIR}/.ssh/kopia.key" --username=kopia_user "--known-hosts=${SOURCE_USER_HOMEDIR}/.ssh/known_hosts" --block-hash=BLAKE3-256 --encryption=AES256-GCM-HMAC-SHA256
-                        "${BIN_DIR}/kopia" policy set --global --compression zstd
-                        "${BIN_DIR}/kopia" policy set --global --add-ignore '.git'
+                        check_result $? "kopia repository initialization" true
+                        set_kopia_policies --global
                 fi
-        else
+                ;;
+                *)
                 "${BIN_DIR}/kopia" repository create filesystem "--path=${TARGET_ROOT}/kopia/data"
-                # Policies are repository side, so they have to be set for every repository
-                "${BIN_DIR}/kopia" policy set --global --compression zstd
-                "${BIN_DIR}/kopia" policy set --global --add-ignore '.git'
-        fi
-        check_result $? "kopia repository initialization" true
+                check_result $? "kopia repository initialization" true
+                set_kopia_policies --global
+                ;;
+        esac
 }
 
 function clear_kopia_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing kopia repository. Remote: ${remotely}." "NOTICE"
-        local cmd="rm -rf \"${TARGET_ROOT:?}/kopia/data\""
-        run_on_target "${remotely}" "${cmd}"
+        log "Clearing kopia repository. Backend: ${backend}." "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                clear_s3_bucket kopia
+                return $?
+        fi
+        run_on_target "${backend}" "rm -rf \"${TARGET_ROOT:?}/kopia/data\""
 }
 
 function backup_kopia {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching kopia backup. Remote: ${remotely}." "NOTICE"
-        connect_kopia_repository "${remotely}"
+        log "Launching kopia backup. Backend: ${backend}." "NOTICE"
+        connect_kopia_repository "${backend}"
         # Exclusion patterns can be checked with kopia snapshot estimate
         "${BIN_DIR}/kopia" snapshot create --parallel 8 --tags "BACKUPID:${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
         check_result $? "kopia backup"
 }
 
 function restore_kopia {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
         local id
 
-        log "Launching kopia restore. Remote: ${remotely}." "NOTICE"
-        connect_kopia_repository "${remotely}"
+        log "Launching kopia restore. Backend: ${backend}." "NOTICE"
+        connect_kopia_repository "${backend}"
 
         id="$("${BIN_DIR}/kopia" snapshot list --tags "BACKUPID:${backup_id}" | awk '{print $4}')"
         check_snapshot_id "${id}" kopia "${backup_id}" || return 1
@@ -784,8 +1034,10 @@ function restore_kopia {
 ###############################################################################
 # restic
 #
-# - reached either over sftp, or through a rest-server running on the target
+# - reached over sftp, through a rest-server on the target (RESTIC_USE_HTTP) or on
+#   S3, where credentials come from the AWS_* environment variables
 # - repository format 2 is required for compression support
+# - restic only supports path style S3 URLs (endpoint/bucket, never bucket.endpoint)
 ###############################################################################
 
 function install_restic {
@@ -830,75 +1082,77 @@ function install_restic_rest_server {
         chmod +x "${BIN_DIR}/rest-server"
 }
 
-function init_restic_repository {
-        local remotely="${1:-false}"
+function set_restic_repo_args {
+        # Fills ${REPO_ARGS} with the arguments selecting the repository
+        local backend="${1}"
 
-        log "Initializing restic repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
+        REPO_ARGS=()
+        case "${backend}" in
+                s3)
+                REPO_ARGS=(-r "s3:$(get_s3_url)/$(get_s3_bucket restic)/data")
+                [ "${S3_TLS_INSECURE}" == true ] && REPO_ARGS+=(--insecure-tls)
+                ;;
+                sftp)
                 if [ "${RESTIC_USE_HTTP}" == true ]; then
-                        "${BIN_DIR}/restic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" init --repository-version 2
+                        REPO_ARGS=(--insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/")
                 else
-                        "${BIN_DIR}/restic" -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init --repository-version 2
+                        REPO_ARGS=(-r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp")
                 fi
-        else
-                "${BIN_DIR}/restic" -r "${TARGET_ROOT}/restic/data" init --repository-version 2
-        fi
+                ;;
+                *)
+                REPO_ARGS=(-r "${TARGET_ROOT}/restic/data")
+                ;;
+        esac
+}
+
+function init_restic_repository {
+        local backend="${1:-local}"
+
+        log "Initializing restic repository. Backend: ${backend}." "NOTICE"
+        set_restic_repo_args "${backend}"
+        "${BIN_DIR}/restic" "${REPO_ARGS[@]}" init --repository-version 2
         check_result $? "restic repository initialization" true
 }
 
 function clear_restic_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing restic repository. Remote: ${remotely}." "NOTICE"
-        local cmd="rm -rf \"${TARGET_ROOT:?}/restic/data\""
-        run_on_target "${remotely}" "${cmd}"
+        log "Clearing restic repository. Backend: ${backend}." "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                clear_s3_bucket restic
+                return $?
+        fi
+        run_on_target "${backend}" "rm -rf \"${TARGET_ROOT:?}/restic/data\""
 }
 
 function backup_restic {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching restic backup. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                if [ "${RESTIC_USE_HTTP}" == true ]; then
-                        "${BIN_DIR}/restic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" backup --verbose --exclude=".git" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-                else
-                        "${BIN_DIR}/restic" -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --verbose --exclude=".git" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-                fi
-        else
-                "${BIN_DIR}/restic" -r "${TARGET_ROOT}/restic/data" backup --verbose --exclude=".git" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-        fi
+        log "Launching restic backup. Backend: ${backend}." "NOTICE"
+        set_restic_repo_args "${backend}"
+        "${BIN_DIR}/restic" "${REPO_ARGS[@]}" backup --verbose --exclude=".git" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
         check_result $? "restic backup"
 }
 
 function restore_restic {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
         local id
 
-        log "Launching restic restore. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                if [ "${RESTIC_USE_HTTP}" == true ]; then
-                        id=$("${BIN_DIR}/restic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" snapshots | grep "${backup_id}" | awk '{print $1}')
-                        check_snapshot_id "${id}" restic "${backup_id}" || return 1
-                        "${BIN_DIR}/restic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RESTIC_HTTP_PORT}/" restore "${id}" --target "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-                else
-                        id=$("${BIN_DIR}/restic" -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $1}')
-                        check_snapshot_id "${id}" restic "${backup_id}" || return 1
-                        "${BIN_DIR}/restic" -r "sftp::${TARGET_ROOT}/restic/data" -o "sftp.command=ssh restic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/restic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "${id}" --target "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-                fi
-        else
-                id=$("${BIN_DIR}/restic" -r "${TARGET_ROOT}/restic/data" snapshots | grep "${backup_id}" | awk '{print $1}')
-                check_snapshot_id "${id}" restic "${backup_id}" || return 1
-                "${BIN_DIR}/restic" -r "${TARGET_ROOT}/restic/data" restore "${id}" --target "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
-        fi
+        log "Launching restic restore. Backend: ${backend}." "NOTICE"
+        set_restic_repo_args "${backend}"
+        id="$("${BIN_DIR}/restic" "${REPO_ARGS[@]}" snapshots | grep "${backup_id}" | awk '{print $1}')"
+        check_snapshot_id "${id}" restic "${backup_id}" || return 1
+        "${BIN_DIR}/restic" "${REPO_ARGS[@]}" restore "${id}" --target "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
         check_result $? "restic restore"
 }
 
 ###############################################################################
 # rustic
 #
-# - restic compatible repositories, reached over sftp or through rest-server
+# - restic compatible repositories, reached over sftp, through rest-server or on
+#   S3, which rustic talks to through opendal
 # - the musl build is used, since the gnu build needs a more recent glibc than
 #   the RHEL clones we benchmark on
 # - rustic always creates repository format 2 with compression enabled, so there
@@ -929,68 +1183,68 @@ function get_version_rustic {
         "${BIN_DIR}/rustic" --version | awk '{print $2}'
 }
 
-function init_rustic_repository {
-        local remotely="${1:-false}"
+function set_rustic_repo_args {
+        # Fills ${REPO_ARGS} with the arguments selecting the repository
+        local backend="${1}"
 
-        log "Initializing rustic repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
+        REPO_ARGS=()
+        case "${backend}" in
+                s3)
+                REPO_ARGS=(-r "opendal:s3" -o "bucket=$(get_s3_bucket rustic)" -o "endpoint=$(get_s3_url)" -o "region=${S3_REGION}" -o "root=/data" -o "access_key_id=${S3_ACCESS_KEY}" -o "secret_access_key=${S3_SECRET_KEY}")
+                ;;
+                sftp)
                 if [ "${RUSTIC_USE_HTTP}" == true ]; then
-                        "${BIN_DIR}/rustic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" init
+                        REPO_ARGS=(--insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/")
                 else
-                        "${BIN_DIR}/rustic" -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key -p ${REMOTE_TARGET_SSH_PORT} -s sftp" init
+                        REPO_ARGS=(-r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp")
                 fi
-        else
-                "${BIN_DIR}/rustic" -r "${TARGET_ROOT}/rustic/data" init
-        fi
+                ;;
+                *)
+                REPO_ARGS=(-r "${TARGET_ROOT}/rustic/data")
+                ;;
+        esac
+}
+
+function init_rustic_repository {
+        local backend="${1:-local}"
+
+        log "Initializing rustic repository. Backend: ${backend}." "NOTICE"
+        set_rustic_repo_args "${backend}"
+        "${BIN_DIR}/rustic" "${REPO_ARGS[@]}" init
         check_result $? "rustic repository initialization" true
 }
 
 function clear_rustic_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing rustic repository. Remote: ${remotely}." "NOTICE"
-        local cmd="rm -rf \"${TARGET_ROOT:?}/rustic/data\""
-        run_on_target "${remotely}" "${cmd}"
+        log "Clearing rustic repository. Backend: ${backend}." "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                clear_s3_bucket rustic
+                return $?
+        fi
+        run_on_target "${backend}" "rm -rf \"${TARGET_ROOT:?}/rustic/data\""
 }
 
 function backup_rustic {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching rustic backup. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                if [ "${RUSTIC_USE_HTTP}" == true ]; then
-                        "${BIN_DIR}/rustic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" backup --glob="!.git" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-                else
-                        "${BIN_DIR}/rustic" -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" backup --glob="!.git" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-                fi
-        else
-                "${BIN_DIR}/rustic" -r "${TARGET_ROOT}/rustic/data" backup --glob="!.git" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-        fi
+        log "Launching rustic backup. Backend: ${backend}." "NOTICE"
+        set_rustic_repo_args "${backend}"
+        "${BIN_DIR}/rustic" "${REPO_ARGS[@]}" backup --glob="!.git" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
         check_result $? "rustic backup"
 }
 
 function restore_rustic {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
         local id
 
-        log "Launching rustic restore. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                if [ "${RUSTIC_USE_HTTP}" == true ]; then
-                        id=$("${BIN_DIR}/rustic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" snapshots | grep "${backup_id}" | awk '{print $2}')
-                        check_snapshot_id "${id}" rustic "${backup_id}" || return 1
-                        "${BIN_DIR}/rustic" --insecure-tls -r "rest:https://${REMOTE_TARGET_FQDN}:${RUSTIC_HTTP_PORT}/" restore "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-                else
-                        id=$("${BIN_DIR}/rustic" -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" snapshots | grep "${backup_id}" | awk '{print $2}')
-                        check_snapshot_id "${id}" rustic "${backup_id}" || return 1
-                        "${BIN_DIR}/rustic" -r "sftp::${TARGET_ROOT}/rustic/data" -o "sftp.command=ssh rustic_user@${REMOTE_TARGET_FQDN} -i ${SOURCE_USER_HOMEDIR}/.ssh/rustic.key ${SSH_OPTS} -p ${REMOTE_TARGET_SSH_PORT} -s sftp" restore "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-                fi
-        else
-                id=$("${BIN_DIR}/rustic" -r "${TARGET_ROOT}/rustic/data" snapshots | grep "${backup_id}" | awk '{print $2}')
-                check_snapshot_id "${id}" rustic "${backup_id}" || return 1
-                "${BIN_DIR}/rustic" -r "${TARGET_ROOT}/rustic/data" restore "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
-        fi
+        log "Launching rustic restore. Backend: ${backend}." "NOTICE"
+        set_rustic_repo_args "${backend}"
+        id="$("${BIN_DIR}/rustic" "${REPO_ARGS[@]}" snapshots | grep "${backup_id}" | awk '{print $2}')"
+        check_snapshot_id "${id}" rustic "${backup_id}" || return 1
+        "${BIN_DIR}/rustic" "${REPO_ARGS[@]}" restore "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.rustic.log" 2>&1
         check_result $? "rustic restore"
 }
 
@@ -1004,12 +1258,14 @@ function restore_rustic {
 # the dataset with 'init -repository' instead (see issue #21). Restores need a
 # second such directory, since duplicacy restores into its repository path.
 #
-# Two more duplicacy specifics worth knowing:
+# Three more duplicacy specifics worth knowing:
 #   - exclusions are not command line flags, they live in a 'filters' file inside
 #     the '.duplicacy' directory
 #   - sftp storage paths are relative to the user home directory, unless the URL
 #     holds a double slash before the path, which is what the '/${TARGET_ROOT}'
 #     below produces
+#   - its generic S3 driver is 'minio://' over HTTP and 'minios://' over HTTPS,
+#     plain 's3://' being reserved for AWS itself
 ###############################################################################
 
 function install_duplicacy {
@@ -1036,33 +1292,39 @@ function get_version_duplicacy {
 
 function get_duplicacy_storage_url {
         # Echoes the storage URL, so init and restore cannot disagree on it
-        local remotely="${1}"
+        local backend="${1}"
 
-        if [ "${remotely}" == true ]; then
+        case "${backend}" in
+                s3)
+                if [ "${S3_USE_TLS}" == true ]; then
+                        echo "minios://${S3_REGION}@${S3_ENDPOINT}/$(get_s3_bucket duplicacy)/data"
+                else
+                        echo "minio://${S3_REGION}@${S3_ENDPOINT}/$(get_s3_bucket duplicacy)/data"
+                fi
+                ;;
+                sftp)
                 echo "sftp://duplicacy_user@${REMOTE_TARGET_FQDN}:${REMOTE_TARGET_SSH_PORT}/${TARGET_ROOT}/duplicacy/data"
-        else
+                ;;
+                *)
                 echo "${TARGET_ROOT}/duplicacy/data"
-        fi
+                ;;
+        esac
 }
 
 function get_duplicacy_snapshot_id {
-        # The snapshot id tells local and remote backups apart inside the storage
-        local remotely="${1}"
+        # The snapshot id tells the backends apart inside the storage
+        local backend="${1}"
 
-        if [ "${remotely}" == true ]; then
-                echo "remoteid"
-        else
-                echo "localid"
-        fi
+        echo "${backend}id"
 }
 
 function init_duplicacy_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
         local pref_dir="${2:-${DUPLICACY_PREF_DIR}}"
         local repository="${3:-${BACKUP_ROOT}}"
         local fatal="${4:-true}"
 
-        log "Initializing duplicacy repository for [${repository}] in [${pref_dir}]. Remote: ${remotely}." "NOTICE"
+        log "Initializing duplicacy repository for [${repository}] in [${pref_dir}]. Backend: ${backend}." "NOTICE"
 
         # Remove earlier repo setup, including any '.duplicacy' left inside the dataset
         # by an older version of this script
@@ -1072,7 +1334,7 @@ function init_duplicacy_repository {
         cd "${pref_dir}" || log_quit "Cannot enter duplicacy preferences directory [${pref_dir}]" "CRITICAL"
 
         # -e encrypts the storage, the password comes from ${DUPLICACY_PASSWORD}
-        "${BIN_DIR}/duplicacy" init -e -repository "${repository}" "$(get_duplicacy_snapshot_id "${remotely}")" "$(get_duplicacy_storage_url "${remotely}")" >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
+        "${BIN_DIR}/duplicacy" init -e -repository "${repository}" "$(get_duplicacy_snapshot_id "${backend}")" "$(get_duplicacy_storage_url "${backend}")" >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
         check_result $? "duplicacy repository initialization" "${fatal}" || return 1
 
         # Exclusions live in [pref dir]/.duplicacy/filters, 'e:' introduces a regex.
@@ -1082,15 +1344,20 @@ function init_duplicacy_repository {
 }
 
 function clear_duplicacy_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing duplicacy repository. Remote: ${remotely}." "NOTICE"
-        if [ "${remotely}" == true ]; then
-                local cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\" && chown duplicacy_user \"${TARGET_ROOT}/duplicacy/data\""
-        else
-                local cmd="rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\""
-        fi
-        run_on_target "${remotely}" "${cmd}"
+        log "Clearing duplicacy repository. Backend: ${backend}." "NOTICE"
+        case "${backend}" in
+                s3)
+                clear_s3_bucket duplicacy
+                ;;
+                sftp)
+                run_on_target "${backend}" "rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\" && chown duplicacy_user \"${TARGET_ROOT}/duplicacy/data\""
+                ;;
+                *)
+                run_on_target "${backend}" "rm -rf \"${TARGET_ROOT:?}/duplicacy/data\" && mkdir -p \"${TARGET_ROOT}/duplicacy/data\""
+                ;;
+        esac
 
         # Drop the local repository metadata too, so the next init starts clean
         rm -rf "${DUPLICACY_PREF_DIR:?}"
@@ -1098,10 +1365,10 @@ function clear_duplicacy_repository {
 }
 
 function backup_duplicacy {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching duplicacy backup. Remote: ${remotely}." "NOTICE"
+        log "Launching duplicacy backup. Backend: ${backend}." "NOTICE"
         # duplicacy works on the '.duplicacy' directory found in the current directory
         cd "${DUPLICACY_PREF_DIR}" || return 127
 
@@ -1111,15 +1378,15 @@ function backup_duplicacy {
 }
 
 function restore_duplicacy {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
         local revision
 
-        log "Launching duplicacy restore. Remote: ${remotely}." "NOTICE"
+        log "Launching duplicacy restore. Backend: ${backend}." "NOTICE"
 
         # duplicacy restores into its own repository path, so we need a second
         # repository, pointing at ${RESTORE_DIR} instead of at the dataset
-        init_duplicacy_repository "${remotely}" "${DUPLICACY_RESTORE_PREF_DIR}" "${RESTORE_DIR}" false || return 1
+        init_duplicacy_repository "${backend}" "${DUPLICACY_RESTORE_PREF_DIR}" "${RESTORE_DIR}" false || return 1
         cd "${DUPLICACY_RESTORE_PREF_DIR}" || return 127
 
         # 'list -t' filters on the tag we backed up with. Revisions are printed as
@@ -1139,13 +1406,16 @@ function restore_duplicacy {
 ###############################################################################
 # plakar
 #
-# - repositories ('kloset stores') are addressed with 'plakar at <store>', which
-#   has to come before the command, while command options come after it
+# - repos ('kloset stores') are addressed 'plakar [OPTS] at <store> COMMAND [OPTS]',
+#   so option placement matters: global options before 'at', command options after
+#   the command
 # - the encryption passphrase comes from ${PLAKAR_PASSPHRASE}
-# - remote stores need the sftp store connector, which is not part of the binary
-#   and is installed with 'plakar pkg add sftp' by setup_source_plakar
-# - that connector shells out to the 'sftp' binary and takes no key or port
+# - store connectors are packages, not part of the binary: setup_source_plakar
+#   installs the sftp and s3 ones with 'plakar pkg add'
+# - the sftp connector shells out to the 'sftp' binary and takes no key or port
 #   option, so the ssh client configuration carries those, see setup_source_plakar
+# - the s3 connector wants its credentials in the store configuration, so that
+#   store is registered once with 'plakar store add' and referenced as '@name'
 # - compression, hashing and chunking are not tunable from the CLI as of 1.1.x,
 #   so plakar runs with its defaults
 ###############################################################################
@@ -1181,8 +1451,9 @@ function setup_source_plakar {
         local tmp_config="${ssh_config}.${PROGRAM}.tmp"
 
         # Store connectors are shipped as packages, not built into the binary
-        log "Adding plakar sftp store connector" "NOTICE"
-        "${BIN_DIR}/plakar" pkg add sftp >> "${LOG_FILE}" 2>&1 || log "Cannot add the plakar sftp connector, remote plakar benchmarks will fail." "WARN"
+        log "Adding plakar sftp and s3 store connectors" "NOTICE"
+        "${BIN_DIR}/plakar" pkg add sftp >> "${LOG_FILE}" 2>&1 || log "Cannot add the plakar sftp connector, sftp plakar benchmarks will fail." "WARN"
+        "${BIN_DIR}/plakar" pkg add s3 >> "${LOG_FILE}" 2>&1 || log "Cannot add the plakar s3 connector, s3 plakar benchmarks will fail." "WARN"
 
         # The sftp connector has no key nor port option, so those have to come from the
         # ssh client configuration. 'Match' scopes the settings to plakar_user, so the
@@ -1207,52 +1478,74 @@ function setup_source_plakar {
         chmod 600 "${ssh_config}"
 }
 
-function get_plakar_repository {
-        local remotely="${1}"
+function register_plakar_s3_store {
+        # The s3 connector reads its credentials from the store configuration, which
+        # plakar keeps on disk, so this only needs to run at repository init time
+        log "Registering plakar s3 store [${PLAKAR_S3_STORE_NAME}]" "NOTICE"
+        # Replace the store a previous run may have registered under that name
+        "${BIN_DIR}/plakar" store rm "${PLAKAR_S3_STORE_NAME}" > /dev/null 2>&1
+        "${BIN_DIR}/plakar" store add "${PLAKAR_S3_STORE_NAME}" "s3://${S3_ENDPOINT}/$(get_s3_bucket plakar)" "access_key=${S3_ACCESS_KEY}" "secret_access_key=${S3_SECRET_KEY}" "use_tls=${S3_USE_TLS}" "tls_insecure_no_verify=${S3_TLS_INSECURE}" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
+        check_result $? "plakar s3 store registration"
+}
 
-        if [ "${remotely}" == true ]; then
+function get_plakar_repository {
+        local backend="${1}"
+
+        case "${backend}" in
+                s3)
+                # A registered store is referenced by its name, prefixed with an @
+                echo "@${PLAKAR_S3_STORE_NAME}"
+                ;;
+                sftp)
                 echo "${PLAKAR_REPOSITORY_REMOTE}"
-        else
+                ;;
+                *)
                 echo "${PLAKAR_REPOSITORY_LOCAL}"
-        fi
+                ;;
+        esac
 }
 
 function init_plakar_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Initializing plakar repository. Remote: ${remotely}." "NOTICE"
+        log "Initializing plakar repository. Backend: ${backend}." "NOTICE"
+        [ "${backend}" == s3 ] && register_plakar_s3_store
         # Stores are encrypted unless -plaintext is given
-        "${BIN_DIR}/plakar" at "$(get_plakar_repository "${remotely}")" create >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
+        "${BIN_DIR}/plakar" at "$(get_plakar_repository "${backend}")" create >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
         check_result $? "plakar repository initialization" true
 }
 
 function clear_plakar_repository {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
 
-        log "Clearing plakar repository. Remote: ${remotely}." "NOTICE"
+        log "Clearing plakar repository. Backend: ${backend}." "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                clear_s3_bucket plakar
+                return $?
+        fi
         # The data directory is recreated empty, since the sftp user needs to own it
         local cmd="rm -rf \"${TARGET_ROOT:?}/plakar/data\"; mkdir -p \"${TARGET_ROOT}/plakar/data\"; if getent passwd | grep plakar_user > /dev/null; then chown plakar_user \"${TARGET_ROOT}/plakar/data\"; fi"
-        run_on_target "${remotely}" "${cmd}"
+        run_on_target "${backend}" "${cmd}"
 }
 
 function backup_plakar {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching plakar backup. Remote: ${remotely}." "NOTICE"
+        log "Launching plakar backup. Backend: ${backend}." "NOTICE"
         # -ignore takes gitignore style patterns and may be repeated
-        "${BIN_DIR}/plakar" at "$(get_plakar_repository "${remotely}")" backup -tag "${backup_id}" -ignore '.git' "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
+        "${BIN_DIR}/plakar" at "$(get_plakar_repository "${backend}")" backup -tag "${backup_id}" -ignore '.git' "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
         check_result $? "plakar backup"
 }
 
 function restore_plakar {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2}"
         local repository
         local id
 
-        log "Launching plakar restore. Remote: ${remotely}." "NOTICE"
-        repository="$(get_plakar_repository "${remotely}")"
+        log "Launching plakar restore. Backend: ${backend}." "NOTICE"
+        repository="$(get_plakar_repository "${backend}")"
 
         # 'ls -tags' prints one snapshot per line as
         # '<date> <snapshot id> <size> <duration> <path> <tags>', so the id is field 2
@@ -1283,17 +1576,25 @@ function setup_git_dataset {
 }
 
 function get_repo_sizes {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
         local backup_software
         local size
 
         local CSV_SIZE="size(kb),"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                size="$(run_on_target "${remotely}" "du -cs \"${TARGET_ROOT}/${backup_software}\"" 2>/dev/null | tail -n 1 | awk '{print $1}')"
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        CSV_SIZE="${CSV_SIZE}n/a,"
+                        continue
+                fi
+                if [ "${backend}" == s3 ]; then
+                        size="$(get_s3_repo_size "${backup_software}")"
+                else
+                        size="$(run_on_target "${backend}" "du -cs \"${TARGET_ROOT}/${backup_software}\"" 2>/dev/null | tail -n 1 | awk '{print $1}')"
+                fi
                 [ -z "${size}" ] && size=0
                 CSV_SIZE="${CSV_SIZE}${size},"
-                log "Repo size for ${backup_software}: ${size} kb. Remote: ${remotely}." "NOTICE"
+                log "Repo size for ${backup_software}: ${size} kb. Backend: ${backend}." "NOTICE"
         done
         echo "${CSV_SIZE}" >> "${CSV_RESULT_FILE}"
 }
@@ -1313,16 +1614,18 @@ function install_backup_programs {
                 install_restic_rest_server
         else
                 # restic, rustic, duplicacy and plakar reach their repositories over
-                # sftp or http, so the target needs nothing of them
+                # sftp, http or S3, so the target needs nothing of them
                 install_restic
                 install_rustic
                 install_duplicacy
                 install_plakar
+                # The S3 client is only needed where the benchmarks run
+                [ -n "${S3_ENDPOINT}" ] && install_s3_client
         fi
 }
 
 function setup_source {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
         local backup_software
 
         log "Setting up source server" "NOTICE"
@@ -1330,7 +1633,7 @@ function setup_source {
 
         install_backup_programs false
 
-        if [ "${remotely}" == false ]; then
+        if [ "${backend}" == local ]; then
                 log "Setting up local target" "NOTICE"
                 setup_target_local_repos
         fi
@@ -1345,7 +1648,7 @@ function setup_source {
 }
 
 function setup_remote_target {
-        local remotely="${1:-false}" # Has no use here obviously, but we'll keep it since remotely argument is passed
+        local backend="${1:-local}" # Has no use here obviously, but we'll keep it since the backend argument is passed
         local backup_software
 
         log "Setting up remote target server" "NOTICE"
@@ -1371,18 +1674,22 @@ function setup_remote_target {
 }
 
 function clear_repositories {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
         local backup_software
 
-        log "Clearing all repositories from earlier data. Remote clean: ${remotely}." "NOTICE"
+        log "Clearing all repositories from earlier data. Backend: ${backend}." "NOTICE"
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                clear_"${backup_software}"_repository "${remotely}"
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        log "Skipping ${backup_software}: it has no ${backend} backend." "NOTICE"
+                        continue
+                fi
+                clear_"${backup_software}"_repository "${backend}"
         done
         log "Clearing done" "NOTICE"
 }
 
 function init_repositories {
-        local remotely="${1:-false}"
+        local backend="${1:-local}"
         local git="${2:-false}"
         local backup_software
 
@@ -1396,9 +1703,13 @@ function init_repositories {
                 log_quit "Backup root [${BACKUP_ROOT}] does not exist. Point BACKUP_ROOT at your dataset, or use --git to download the git dataset." "CRITICAL"
         fi
 
-        log "Initializing repositories. Remote: ${remotely}." "NOTICE"
+        log "Initializing repositories. Backend: ${backend}." "NOTICE"
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                init_"${backup_software}"_repository "${remotely}"
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        log "Skipping ${backup_software}: it has no ${backend} backend." "NOTICE"
+                        continue
+                fi
+                init_"${backup_software}"_repository "${backend}"
         done
         log "Initialization done." "NOTICE"
 }
@@ -1447,7 +1758,7 @@ function stop_serve_http_targets {
 ###############################################################################
 
 function benchmark_backup_standard {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2:-defaultid}"
         local backup_software
         local seconds_begin
@@ -1456,11 +1767,16 @@ function benchmark_backup_standard {
         local CSV_BACKUP_EXEC_TIME="backup(s),"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                drop_caches "${remotely}"
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        log "Skipping ${backup_software} backup: it has no ${backend} backend." "NOTICE"
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}n/a,"
+                        continue
+                fi
+                drop_caches "${backend}"
                 log "Starting backup bench of ${backup_software} name=${backup_id}" "NOTICE"
                 seconds_begin=$SECONDS
                 # Launch the backup in the background, so ExecTasks can enforce timeouts
-                backup_"${backup_software}" "${remotely}" "${backup_id}" &
+                backup_"${backup_software}" "${backend}" "${backup_id}" &
                 ExecTasks "$!" "${backup_software}_bench" false 3600 36000 3600 36000
                 exec_time=$((SECONDS - seconds_begin))
                 CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time},"
@@ -1468,14 +1784,14 @@ function benchmark_backup_standard {
         done
 
         echo "${CSV_BACKUP_EXEC_TIME}" >> "${CSV_RESULT_FILE}"
-        get_repo_sizes "${remotely}"
+        get_repo_sizes "${backend}"
 }
 
 function benchmark_backup_git {
-        local remotely="${1}"
+        local backend="${1}"
         local tag
 
-        log "Running git dataset backup benchmarks. Remote: ${remotely}" "NOTICE"
+        log "Running git dataset backup benchmarks. Backend: ${backend}" "NOTICE"
 
         if [ ! -d "${BACKUP_ROOT}/.git" ]; then
                 log_quit "No git dataset found in [${BACKUP_ROOT}]. Please run --init-repos --git first." "CRITICAL"
@@ -1487,19 +1803,19 @@ function benchmark_backup_git {
         for tag in "${GIT_TAGS[@]}"; do
                 log "Checking out git tag ${tag}" "NOTICE"
                 git checkout "${tag}" || log_quit "Cannot checkout git tag ${tag}" "CRITICAL"
-                benchmark_backup_standard "${remotely}" "bkp-${tag}"
+                benchmark_backup_standard "${backend}" "bkp-${tag}"
         done
 }
 
 function benchmark_backup {
-        local remotely="${1}"
+        local backend="${1}"
         local git="${2:-false}"
         local backup_id_timestamp="${3:-false}"
         local backup_software
         local backup_id
         local CSV_HEADER
 
-        echo "# $PROGRAM $PROGRAM_BUILD $(date) Remote: ${remotely}, Git: ${git}" >> "${CSV_RESULT_FILE}"
+        echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend}, Git: ${git}" >> "${CSV_RESULT_FILE}"
         CSV_HEADER=","
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
@@ -1507,20 +1823,24 @@ function benchmark_backup {
         done
         echo "${CSV_HEADER}" >> "${CSV_RESULT_FILE}"
 
+        if [ "${backend}" == s3 ] && [ "${S3_DROP_TARGET_CACHES}" != true ]; then
+                log "S3_DROP_TARGET_CACHES is disabled: the page cache of the S3 server is not dropped between measures." "WARN"
+        fi
+
         if [ "${git}" == true ]; then
-                benchmark_backup_git "${remotely}"
+                benchmark_backup_git "${backend}"
         else
                 if [ "${backup_id_timestamp}" == true ]; then
                         backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
                 else
                         backup_id="defaultid"
                 fi
-                benchmark_backup_standard "${remotely}" "${backup_id}"
+                benchmark_backup_standard "${backend}" "${backup_id}"
         fi
 }
 
 function benchmark_restore_standard {
-        local remotely="${1}"
+        local backend="${1}"
         local backup_id="${2:-defaultid}"
         local backup_software
         local seconds_begin
@@ -1532,7 +1852,12 @@ function benchmark_restore_standard {
 
         # Restore the given backup and compare it with the current dataset
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                drop_caches "${remotely}"
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        log "Skipping ${backup_software} restore: it has no ${backend} backend." "NOTICE"
+                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}n/a,"
+                        continue
+                fi
+                drop_caches "${backend}"
 
                 [ -d "${RESTORE_DIR}" ] && rm -rf "${RESTORE_DIR:?}"
                 mkdir -p "${RESTORE_DIR}"
@@ -1540,7 +1865,7 @@ function benchmark_restore_standard {
                 log "Starting restore bench of ${backup_software} name=${backup_id}" "NOTICE"
                 seconds_begin=$SECONDS
                 # Launch the restore in the background, so ExecTasks can enforce timeouts
-                restore_"${backup_software}" "${remotely}" "${backup_id}" &
+                restore_"${backup_software}" "${backend}" "${backup_id}" &
                 ExecTasks "$!" "${backup_software}_restore" false 3600 18000 3600 18000
                 exec_time=$((SECONDS - seconds_begin))
                 CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${exec_time},"
@@ -1568,9 +1893,9 @@ function benchmark_restore_standard {
 }
 
 function benchmark_restore_git {
-        local remotely="${1}"
+        local backend="${1}"
 
-        log "Running git dataset restore benchmarks. Remote: ${remotely}" "NOTICE"
+        log "Running git dataset restore benchmarks. Backend: ${backend}" "NOTICE"
 
         if [ ! -d "${BACKUP_ROOT}/.git" ]; then
                 log_quit "No git dataset found in [${BACKUP_ROOT}]. Please run --init-repos --git first." "CRITICAL"
@@ -1579,34 +1904,34 @@ function benchmark_restore_git {
         # We restore the last backed up tag, so the dataset we compare against is the
         # one that was checked out during the last backup
         git checkout "${GIT_TAGS[-1]}" || log_quit "Cannot checkout git tag ${GIT_TAGS[-1]}" "CRITICAL"
-        benchmark_restore_standard "${remotely}" "bkp-${GIT_TAGS[-1]}"
+        benchmark_restore_standard "${backend}" "bkp-${GIT_TAGS[-1]}"
 }
 
 function benchmark_restore {
-        local remotely="${1}"
+        local backend="${1}"
         local git="${2:-false}"
         local backup_id_timestamp="${3:-false}"
         local backup_id
 
         if [ "${git}" == true ]; then
-                benchmark_restore_git "${remotely}"
+                benchmark_restore_git "${backend}"
         else
                 if [ "${backup_id_timestamp}" == true ]; then
                         backup_id="$(date +"%Y-%m-%d-T%H-%M-%S")"
                 else
                         backup_id="defaultid"
                 fi
-                benchmark_restore_standard "${remotely}" "${backup_id}"
+                benchmark_restore_standard "${backend}" "${backup_id}"
         fi
 }
 
 function benchmarks {
-        local remotely="${1}"
+        local backend="${1}"
         local git="${2:-false}"
         local backup_id_timestamp="${3:-false}"
 
-        benchmark_backup "${remotely}" "${git}" "${backup_id_timestamp}"
-        benchmark_restore "${remotely}" "${git}" "${backup_id_timestamp}"
+        benchmark_backup "${backend}" "${git}" "${backup_id_timestamp}"
+        benchmark_restore "${backend}" "${git}" "${backup_id_timestamp}"
 }
 
 function versions {
@@ -1633,28 +1958,35 @@ function usage {
         echo ""
         echo "--config=/path/to/file.conf       Alternative configuration file"
         echo "--setup-remote-target             Install backup programs and setup SSH access (executed on target)"
-        echo "--setup-source                    Install backup programs and setup local (or remote with --remote) repositories (executed on source)"
-        echo "--init-repos                      Reinitialize local (or remote with --remote) repositories after clearing. Must be used with --git if multiple version benchmarks is used) (executed on source)"
+        echo "--setup-source                    Install backup programs and setup repositories for the given backend (executed on source)"
+        echo "--setup-s3-buckets                Create one S3 bucket per backup program using the S3_* settings (executed on source)"
+        echo "--init-repos                      Reinitialize repositories after clearing. Must be used with --git if multiple version benchmarks is used) (executed on source)"
         echo "--serve-http-targets              Launch http servers for kopia and restic manually (executed on target)"
         echo "--stop-http-targets               Stop http servers for kopia and restic (executed on target)"
-        echo "--benchmark-backup                Run backup benchmarks using local (or remote with --remote) repositories"
-        echo "--benchmark-restore               Run restore benchmarks using local (or remote with --remote) repositories, restores to local restore path"
-        echo "--benchmarks                      Run both backup and restore benchmark using local (or remote with --remote) repositories and local restore path"
-        echo "--all                             Clear, init and run backup with git dataset for both local and remote targets"
+        echo "--benchmark-backup                Run backup benchmarks"
+        echo "--benchmark-restore               Run restore benchmarks, restores to local restore path"
+        echo "--benchmarks                      Run both backup and restore benchmarks"
+        echo "--all                             Clear, init and run backup with git dataset on every configured backend"
         echo ""
         echo "MODIFIERS"
+        echo "--backend=local|sftp|s3           Storage backend to work on (defaults to local)"
+        echo "                                    local: filesystem repositories below TARGET_ROOT"
+        echo "                                    sftp:  repositories on the remote target, over SSH/SFTP"
+        echo "                                    s3:    repositories in S3 buckets, needs the S3_* settings"
+        echo "                                  bupstash and borg 1.x have no s3 backend and are skipped there"
+        echo "--local                           Alias of --backend=local"
+        echo "--remote                          Alias of --backend=sftp"
         echo "--git                             Use git dataset (multiple version benchmark). WARNING: deletes and re-clones BACKUP_ROOT"
-        echo "--local                           Execute locally (works for --clear-repos, --init-repos, --benchmark*)"
-        echo "--remote                          Execute remotely (works for --clear-repos, --init-repos, --benchmark*)"
         echo "--backup-id-timestamp             Add a timestamp as backup id when not using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id"
         echo ""
         echo "After some benchmarks, you might want to remove earlier data from repositories"
-        echo "--clear-repos                     Removes data from local (or remote with --remote) repositories"
+        echo "--clear-repos                     Removes data from the repositories of the given backend"
         echo ""
         echo "DEBUG commands"
         echo "--setup-root-access               Manually setup root access (executed on target)"
         echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually"
         echo "--install-backup-programs         Locally install / upgrade backup programs into BIN_DIR. If launched with --remote, it will install only remote target required programs"
+        echo "--install-s3-client               Install the mc client used to create, empty and measure S3 buckets"
         echo "--versions                        Show versions of all installed backup programs"
         exit 128
 }
@@ -1668,7 +2000,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 cmd=""
-REMOTELY=false
+BACKEND="local"
 USE_GIT_VERSIONS=false
 ALL=false
 CONFIG_FILE="backup-bench.conf"
@@ -1688,6 +2020,9 @@ for i in "${@}"; do
                 ;;
                 --setup-remote-target)
                 cmd="setup_remote_target"
+                ;;
+                --setup-s3-buckets)
+                cmd="setup_s3_buckets"
                 ;;
                 --serve-http-targets)
                 cmd="serve_http_targets"
@@ -1710,11 +2045,14 @@ for i in "${@}"; do
                 --init-repos)
                 cmd="init_repositories"
                 ;;
+                --backend=*)
+                BACKEND="${i##*=}"
+                ;;
                 --local)
-                REMOTELY=false
+                BACKEND="local"
                 ;;
                 --remote)
-                REMOTELY=true
+                BACKEND="sftp"
                 ;;
                 --git)
                 USE_GIT_VERSIONS=true
@@ -1727,6 +2065,9 @@ for i in "${@}"; do
                 ;;
                 --install-backup-programs)
                 cmd="install_backup_programs"
+                ;;
+                --install-s3-client)
+                cmd="install_s3_client"
                 ;;
                 --all)
                 ALL=true
@@ -1762,18 +2103,43 @@ if ! [[ "${CONF_VERSION}" =~ ^[0-9]+$ ]] || [ "${CONF_VERSION}" -lt "${MINIMUM_C
         log_quit "Configuration file [${CONFIG_FILE}] is too old (found version '${CONF_VERSION}', need at least ${MINIMUM_CONF_VERSION}). Please update it from the shipped backup-bench.conf" "CRITICAL"
 fi
 
+# 'remote' is accepted as an alias of 'sftp', since that backend also covers the
+# programs speaking their own protocol over ssh
+case "${BACKEND}" in
+        local|sftp|s3)
+        ;;
+        remote)
+        BACKEND="sftp"
+        ;;
+        *)
+        log_quit "Unknown backend [${BACKEND}]. Supported backends: local, sftp, s3." "CRITICAL"
+        ;;
+esac
+
+if [ "${BACKEND}" == s3 ] || [ "${cmd}" == "setup_s3_buckets" ]; then
+        [ -z "${S3_ENDPOINT}" ] && log_quit "The s3 backend needs S3_ENDPOINT to be set in [${CONFIG_FILE}]." "CRITICAL"
+        export_s3_credentials
+fi
+
 self_setup
 
 if [ "${ALL}" == true ]; then
-        # prepare repos and run all tests locally and remotely, using the git dataset
-        clear_repositories false
-        init_repositories false true
-        benchmarks false true "${BACKUP_ID_TIMESTAMP}"
-        clear_repositories true
-        init_repositories true true
-        benchmarks true true "${BACKUP_ID_TIMESTAMP}"
+        # prepare repos and run all tests on every backend we can reach, using the git dataset
+        for one_backend in local sftp s3; do
+                if [ "${one_backend}" == s3 ]; then
+                        if [ -z "${S3_ENDPOINT}" ]; then
+                                log "Skipping the s3 backend: S3_ENDPOINT is not configured." "NOTICE"
+                                continue
+                        fi
+                        export_s3_credentials
+                fi
+                log "Running all benchmarks on the ${one_backend} backend" "NOTICE"
+                clear_repositories "${one_backend}"
+                init_repositories "${one_backend}" true
+                benchmarks "${one_backend}" true "${BACKUP_ID_TIMESTAMP}"
+        done
 elif [ -n "${cmd}" ]; then
-        full_cmd="${cmd} ${REMOTELY} ${USE_GIT_VERSIONS} ${BACKUP_ID_TIMESTAMP}"
+        full_cmd="${cmd} ${BACKEND} ${USE_GIT_VERSIONS} ${BACKUP_ID_TIMESTAMP}"
         log "Running: ${full_cmd}" "DEBUG"
         eval "${full_cmd}"
 else
