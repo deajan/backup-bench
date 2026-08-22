@@ -114,6 +114,40 @@ A quick word about backup coherence:
 While some backup tools might detect filesystem changes inflight, it's usually the burden of a snapshot system (zfs, bcachefs, lvm, btrfs, vss...) to provide the backup program a reliable static version of the filesystem.
 Still it's a really nice to have in order to detect problems on backups without those snapshot aware tools, like plain XFS/EXT4 partitions.
 
+# Settings used for the benchmarks
+
+Backup programs do not ship with comparable defaults. borg compresses with lz4 and runs single threaded, bupstash already defaults to `zstd:3` and to one thread per processor, restic reads 2 files at a time, and plakar defaults to 8 x CPU + 1 parallel tasks.
+Handing every program the same flags would hide what people actually get out of the box, and running everything at its default would hide what the programs are capable of. So each benchmark is run three times, selected with `--profile`:
+
+|Profile|What it does|
+|---|---|
+|`default`|no compression nor concurrency option is passed at all, every program runs exactly as it ships|
+|`equalised`|every program is pushed as close to zstd level 3 and 8 threads as its own options allow|
+|`best`|every program is asked for its strongest compression (zstd 19) and one thread per processor|
+
+Read the results this way:
+
+ - comparing `default` with `equalised` **for one program** tells you whether that program ships badly configured, which is the interesting question for its maintainers
+ - comparing **programs with each other** only makes sense inside the `equalised` pass, since that is the only one where they are all doing comparable work
+ - in the `best` pass every program is doing something different, so its numbers are only comparable with that same program's other passes
+
+Not every program can follow a profile, and that is a result in itself:
+
+|Program|Compression|Concurrency|
+|---|---|---|
+|borg|`--compression zstd,N`, level 1 to 22, default is lz4|**none**, borg is single threaded|
+|borg 2|`--compression zstd,N`, level 1 to 22|**none**|
+|restic|named modes only (`auto`, `off`, `fastest`, `better`, `max`), no numeric level|`--read-concurrency N`, defaults to 2|
+|rustic|`init --set-compression N`, stored in the repository|**none**|
+|kopia|named presets only (`zstd`, `zstd-best-compression`, ...), no numeric level|`--parallel N`|
+|bupstash|`--compression zstd[:N]`, already defaults to `zstd:3`|`--threads N`, already defaults to one per processor|
+|duplicacy|**none, LZ4 only**|`-threads N`|
+|plakar|**none in 1.1.x**|`-concurrency N`, defaults to 8 x CPU + 1|
+
+Only compression and concurrency change between profiles. Exclusions, tags, encryption algorithms and repository formats stay identical across the three passes, otherwise they could not be compared with each other.
+
+Repositories are cleared and reinitialized between two profiles, and that is not optional: chunks are deduplicated on their plaintext, so a second profile reusing the same repository would find the first profile's chunks already there and never recompress them, which would make both its timings and its repository size meaningless. The script records which profile built a repository and refuses to benchmark it with another one.
+
 # Results
 
 ## 2026-08-13

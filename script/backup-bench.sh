@@ -44,20 +44,49 @@
 # during an s3 run and get "n/a" in the results instead of a timing. Programs
 # unable to reach a backend are declared in ${UNSUPPORTED_BACKENDS} below.
 #
+# TUNING PROFILES
+#
+# Programs do not ship with comparable defaults: borg compresses with lz4 and runs
+# single threaded, bupstash already defaults to zstd:3 with one thread per
+# processor, restic reads 2 files at a time, and plakar defaults to 8 x CPU + 1
+# parallel tasks. Handing every program the same flags would therefore hide what
+# people actually get, while running everything at its default hides what the
+# programs are capable of. So --profile selects one of three passes:
+#
+#   default    no compression nor concurrency option is passed at all
+#   equalised  every program is pushed as close to ${EQUALISED_ZSTD_LEVEL} and
+#              ${EQUALISED_THREADS} as its own options allow
+#   best       every program is asked for its strongest compression and as much
+#              parallelism as it accepts
+#
+# Not every program can follow: duplicacy only ever uses LZ4, plakar 1.1.x exposes
+# no compression option, restic and kopia only name their compression presets
+# instead of taking a level, and borg, borg 2 and rustic expose no concurrency
+# option at all. Each set_<name>_tuning_args function documents what its program
+# could and could not do, and README.md carries the same table.
+#
+# The two profile targets only ever cover compression and concurrency. Exclusions,
+# tags, encryption and repository format stay identical across profiles, otherwise
+# the passes would not be comparable with each other.
+#
+# Repositories must be cleared between two profiles, since chunks are deduplicated
+# on their plaintext: a second profile would reuse the first one's chunks instead
+# of recompressing them, making both its timings and its size meaningless. The
+# profile a repository was initialized with is recorded, and benchmarking a
+# repository built by another profile is refused, see check_repository_profile().
+#
 # KEEPING THE COMPARISON FAIR
 #
 #   - the page cache (and the ZFS ARC) is dropped before every single backup and
 #     restore, see drop_caches()
-#   - every program is configured to use zstd compression when it supports it
 #   - the '.git' directory of the git dataset is excluded everywhere, since it
 #     would otherwise dominate deduplication results
 #   - no program is allowed to write into the dataset (this is why duplicacy is
 #     driven with 'init -repository', see init_duplicacy_repository)
-#   - programs that can use multiple threads are given 8 of them
 #   - restores skip ACLs / xattrs / ownership when the program can, so all of
 #     them do a comparable amount of work
-#   - one backend at a time: mixing transports inside a run would make the
-#     numbers of that run incomparable
+#   - one backend and one profile at a time: mixing transports or settings inside
+#     a run would make the numbers of that run incomparable
 #
 # HOW BACKUP PROGRAMS ARE PLUGGED IN
 #
@@ -84,6 +113,8 @@
 #   setup_ssh_<name>_server   restricts the target authorized_keys to a serve
 #                             command, for programs that speak their own protocol
 #                             over ssh (borg, borg_beta, bupstash)
+#   set_<name>_tuning_args    fills ${TUNING_ARGS} with the compression and
+#                             concurrency options of the current ${PROFILE}
 #
 # By convention each program also has one helper turning a backend name into the
 # arguments or the environment that program needs to reach its repository
@@ -106,10 +137,10 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2026 by Orsiris de Jong"
-PROGRAM_BUILD=2026081802
+PROGRAM_BUILD=2026081803
 
 # Configuration files older than this one lack settings this script needs
-MINIMUM_CONF_VERSION=2026081802
+MINIMUM_CONF_VERSION=2026081803
 
 # Programs that cannot reach every backend. Anything not listed here is assumed to
 # support all of them.
@@ -192,6 +223,72 @@ function supports_backend {
                 return 1
                 ;;
         esac
+        return 0
+}
+
+function get_profile_zstd_level {
+        # Echoes the zstd level the current profile asks for, or nothing when the profile
+        # passes no compression option at all
+        case "${PROFILE}" in
+                equalised)
+                echo "${EQUALISED_ZSTD_LEVEL}"
+                ;;
+                best)
+                echo "${BEST_ZSTD_LEVEL}"
+                ;;
+        esac
+}
+
+function get_profile_threads {
+        # Echoes the thread count the current profile asks for, or nothing when the
+        # profile passes no concurrency option at all
+        case "${PROFILE}" in
+                equalised)
+                echo "${EQUALISED_THREADS}"
+                ;;
+                best)
+                if [ "${BEST_THREADS}" -eq 0 ]; then
+                        nproc
+                else
+                        echo "${BEST_THREADS}"
+                fi
+                ;;
+        esac
+}
+
+function get_profile_marker_file {
+        # Remembers which profile built the repositories of a backend
+        echo "${BACKUP_BENCH_ROOT}/state/${1}.profile"
+}
+
+function record_repository_profile {
+        local backend="${1}"
+        local marker
+
+        marker="$(get_profile_marker_file "${backend}")"
+        mkdir -p "$(dirname "${marker}")" && echo "${PROFILE}" > "${marker}"
+}
+
+function forget_repository_profile {
+        local backend="${1}"
+
+        rm -f "$(get_profile_marker_file "${backend}")"
+}
+
+function check_repository_profile {
+        # Two profiles must never share a repository: chunks are deduplicated on their
+        # plaintext, so the second profile would reuse the first one's chunks instead of
+        # recompressing them, and both its timings and its size would be meaningless
+        local backend="${1}"
+        local marker
+        local recorded
+
+        marker="$(get_profile_marker_file "${backend}")"
+        [ ! -f "${marker}" ] && return 0
+        recorded="$(cat "${marker}")"
+        if [ "${recorded}" != "${PROFILE}" ]; then
+                log_quit "The ${backend} repositories were initialized with the '${recorded}' profile, but this run uses '${PROFILE}'. Run --clear-repos and --init-repos first, or both profiles would deduplicate against each other." "CRITICAL"
+        fi
         return 0
 }
 
@@ -655,6 +752,20 @@ function set_bupstash_repository {
         fi
 }
 
+function set_bupstash_tuning_args {
+        # bupstash takes both a zstd level and a thread count, so it can follow any
+        # profile exactly. Worth knowing for the default profile: it already defaults to
+        # zstd:3 and to one thread per processor
+        local level
+        local threads
+
+        TUNING_ARGS=()
+        level="$(get_profile_zstd_level)"
+        [ -n "${level}" ] && TUNING_ARGS+=(--compression "zstd:${level}")
+        threads="$(get_profile_threads)"
+        [ -n "${threads}" ] && TUNING_ARGS+=(--threads "${threads}")
+}
+
 function init_bupstash_repository {
         local backend="${1:-local}"
 
@@ -678,9 +789,10 @@ function backup_bupstash {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching bupstash backup. Backend: ${backend}." "NOTICE"
+        log "Launching bupstash backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         set_bupstash_repository "${backend}"
-        "${BIN_DIR}/bupstash" put --compression zstd:3 --exclude '.git' --print-file-actions --print-stats "BACKUPID=${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.bupstash.log" 2>&1
+        set_bupstash_tuning_args
+        "${BIN_DIR}/bupstash" put "${TUNING_ARGS[@]}" --exclude '.git' --print-file-actions --print-stats "BACKUPID=${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.bupstash.log" 2>&1
         check_result $? "bupstash backup"
 }
 
@@ -752,6 +864,16 @@ function set_borg_repo_args {
         fi
 }
 
+function set_borg_tuning_args {
+        # borg takes a zstd level (1 to 22) but exposes no concurrency option at all, so
+        # it stays single threaded in every profile. Its own default is lz4, not zstd
+        local level
+
+        TUNING_ARGS=()
+        level="$(get_profile_zstd_level)"
+        [ -n "${level}" ] && TUNING_ARGS=(--compression "zstd,${level}")
+}
+
 function init_borg_repository {
         local backend="${1:-local}"
 
@@ -774,10 +896,11 @@ function backup_borg {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg backup. Backend: ${backend}." "NOTICE"
+        log "Launching borg backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         set_borg_repo_args "${backend}"
+        set_borg_tuning_args
         # Exclusion patterns can be checked with borg create --list --dry-run --exclude ...
-        "${BIN_DIR}/borg" create "${REPO_ARGS[@]}" --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
+        "${BIN_DIR}/borg" create "${REPO_ARGS[@]}" "${TUNING_ARGS[@]}" --exclude 're:\.git/.*$' --stats --verbose "${BORG_REPO}"::"${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg.log" 2>&1
         check_result $? "borg backup"
 }
 
@@ -849,6 +972,15 @@ function set_borg_beta_repo_args {
         esac
 }
 
+function set_borg_beta_tuning_args {
+        # Same as borg stable: a zstd level, and no concurrency option
+        local level
+
+        TUNING_ARGS=()
+        level="$(get_profile_zstd_level)"
+        [ -n "${level}" ] && TUNING_ARGS=(--compression "zstd,${level}")
+}
+
 function init_borg_beta_repository {
         local backend="${1:-local}"
 
@@ -875,9 +1007,10 @@ function backup_borg_beta {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching borg_beta backup. Backend: ${backend}." "NOTICE"
+        log "Launching borg_beta backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         set_borg_beta_repo_args "${backend}"
-        "${BIN_DIR}/borg_beta" "${REPO_ARGS[@]}" create --compression zstd,3 --exclude 're:\.git/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
+        set_borg_beta_tuning_args
+        "${BIN_DIR}/borg_beta" "${REPO_ARGS[@]}" create "${TUNING_ARGS[@]}" --exclude 're:\.git/.*$' --stats --verbose "${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.borg_beta.log" 2>&1
         check_result $? "borg_beta backup"
 }
 
@@ -963,11 +1096,32 @@ function connect_kopia_repository {
         esac
 }
 
-function set_kopia_policies {
-        # Policies live in the repository, so they have to be set for every new one
-        local target="${1:---global}"
+function set_kopia_tuning_args {
+        # kopia takes a thread count. Its compression is a repository policy instead of a
+        # backup option, so it is handled by set_kopia_policies
+        local threads
 
-        "${BIN_DIR}/kopia" policy set "${target}" --compression zstd
+        TUNING_ARGS=()
+        threads="$(get_profile_threads)"
+        [ -n "${threads}" ] && TUNING_ARGS=(--parallel "${threads}")
+}
+
+function set_kopia_policies {
+        # Policies live in the repository, so they have to be set for every new one.
+        # kopia names its compression presets instead of taking a zstd level, so the
+        # equalised profile uses plain 'zstd' as the closest thing to a default level
+        local target="${1:---global}"
+        local compression
+
+        case "${PROFILE}" in
+                equalised)
+                compression=zstd
+                ;;
+                best)
+                compression=zstd-best-compression
+                ;;
+        esac
+        [ -n "${compression}" ] && "${BIN_DIR}/kopia" policy set "${target}" --compression "${compression}"
         "${BIN_DIR}/kopia" policy set "${target}" --add-ignore '.git'
 }
 
@@ -1018,10 +1172,11 @@ function backup_kopia {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching kopia backup. Backend: ${backend}." "NOTICE"
+        log "Launching kopia backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         connect_kopia_repository "${backend}"
+        set_kopia_tuning_args
         # Exclusion patterns can be checked with kopia snapshot estimate
-        "${BIN_DIR}/kopia" snapshot create --parallel 8 --tags "BACKUPID:${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
+        "${BIN_DIR}/kopia" snapshot create "${TUNING_ARGS[@]}" --tags "BACKUPID:${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
         check_result $? "kopia backup"
 }
 
@@ -1035,7 +1190,8 @@ function restore_kopia {
 
         id="$("${BIN_DIR}/kopia" snapshot list --tags "BACKUPID:${backup_id}" | awk '{print $4}')"
         check_snapshot_id "${id}" kopia "${backup_id}" || return 1
-        "${BIN_DIR}/kopia" restore --parallel 8 --skip-owners --skip-permissions "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
+        set_kopia_tuning_args
+        "${BIN_DIR}/kopia" restore "${TUNING_ARGS[@]}" --skip-owners --skip-permissions "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
         check_result $? "kopia restore"
 }
 
@@ -1113,6 +1269,25 @@ function set_restic_repo_args {
         esac
 }
 
+function set_restic_tuning_args {
+        # restic names its compression modes (auto|off|fastest|better|max) instead of
+        # taking a zstd level, so the equalised profile uses 'auto', its own zstd default,
+        # and the best profile uses 'max'. --read-concurrency defaults to 2
+        local threads
+
+        TUNING_ARGS=()
+        case "${PROFILE}" in
+                equalised)
+                TUNING_ARGS+=(--compression auto)
+                ;;
+                best)
+                TUNING_ARGS+=(--compression max)
+                ;;
+        esac
+        threads="$(get_profile_threads)"
+        [ -n "${threads}" ] && TUNING_ARGS+=(--read-concurrency "${threads}")
+}
+
 function init_restic_repository {
         local backend="${1:-local}"
 
@@ -1137,9 +1312,10 @@ function backup_restic {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching restic backup. Backend: ${backend}." "NOTICE"
+        log "Launching restic backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         set_restic_repo_args "${backend}"
-        "${BIN_DIR}/restic" "${REPO_ARGS[@]}" backup --verbose --exclude=".git" --tag="${backup_id}" --compression=auto "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
+        set_restic_tuning_args
+        "${BIN_DIR}/restic" "${REPO_ARGS[@]}" backup "${TUNING_ARGS[@]}" --verbose --exclude=".git" --tag="${backup_id}" "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.restic.log" 2>&1
         check_result $? "restic backup"
 }
 
@@ -1215,10 +1391,16 @@ function set_rustic_repo_args {
 
 function init_rustic_repository {
         local backend="${1:-local}"
+        local level
+        local init_args=()
 
-        log "Initializing rustic repository. Backend: ${backend}." "NOTICE"
+        log "Initializing rustic repository. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         set_rustic_repo_args "${backend}"
-        "${BIN_DIR}/rustic" "${REPO_ARGS[@]}" init
+        # rustic keeps its compression level in the repository, so unlike every other
+        # program its profile has to be applied at init time
+        level="$(get_profile_zstd_level)"
+        [ -n "${level}" ] && init_args=(--set-compression "${level}")
+        "${BIN_DIR}/rustic" "${REPO_ARGS[@]}" init "${init_args[@]}"
         check_result $? "rustic repository initialization" true
 }
 
@@ -1319,6 +1501,16 @@ function get_duplicacy_storage_url {
         esac
 }
 
+function set_duplicacy_tuning_args {
+        # duplicacy only ever uses LZ4, there is no compression option to pass, so only
+        # its thread count follows the profile (-threads, see issue #14)
+        local threads
+
+        TUNING_ARGS=()
+        threads="$(get_profile_threads)"
+        [ -n "${threads}" ] && TUNING_ARGS=(-threads "${threads}")
+}
+
 function get_duplicacy_snapshot_id {
         # The snapshot id tells the backends apart inside the storage
         local backend="${1}"
@@ -1376,12 +1568,12 @@ function backup_duplicacy {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching duplicacy backup. Backend: ${backend}." "NOTICE"
+        log "Launching duplicacy backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         # duplicacy works on the '.duplicacy' directory found in the current directory
         cd "${DUPLICACY_PREF_DIR}" || return 127
 
-        # -threads 8 as per https://github.com/deajan/backup-bench/issues/14
-        "${BIN_DIR}/duplicacy" backup -t "${backup_id}" -stats -threads 8 >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
+        set_duplicacy_tuning_args
+        "${BIN_DIR}/duplicacy" backup -t "${backup_id}" -stats "${TUNING_ARGS[@]}" >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
         check_result $? "duplicacy backup"
 }
 
@@ -1407,7 +1599,8 @@ function restore_duplicacy {
         log "Using revision [${revision}]" "NOTICE"
 
         # -ignore-owner keeps the restore comparable with the other programs
-        "${BIN_DIR}/duplicacy" restore -r "${revision}" -stats -overwrite -ignore-owner -threads 8 >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
+        set_duplicacy_tuning_args
+        "${BIN_DIR}/duplicacy" restore -r "${revision}" -stats -overwrite -ignore-owner "${TUNING_ARGS[@]}" >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
         check_result $? "duplicacy restore"
 }
 
@@ -1496,6 +1689,18 @@ function register_plakar_s3_store {
         check_result $? "plakar s3 store registration"
 }
 
+function set_plakar_tuning_args {
+        # plakar 1.1.x exposes no compression option at all, so only its concurrency
+        # follows the profile. '-concurrency' is a global option, it has to come before
+        # the 'at' clause.
+        # Only the equalised profile sets it: plakar already defaults to 8 x CPU + 1
+        # parallel tasks, which is more than the best profile would ask for
+        TUNING_ARGS=()
+        if [ "${PROFILE}" == "equalised" ]; then
+                TUNING_ARGS=(-concurrency "${EQUALISED_THREADS}")
+        fi
+}
+
 function get_plakar_repository {
         local backend="${1}"
 
@@ -1540,9 +1745,10 @@ function backup_plakar {
         local backend="${1}"
         local backup_id="${2}"
 
-        log "Launching plakar backup. Backend: ${backend}." "NOTICE"
+        log "Launching plakar backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
+        set_plakar_tuning_args
         # -ignore takes gitignore style patterns and may be repeated
-        "${BIN_DIR}/plakar" at "$(get_plakar_repository "${backend}")" backup -tag "${backup_id}" -ignore '.git' "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
+        "${BIN_DIR}/plakar" "${TUNING_ARGS[@]}" at "$(get_plakar_repository "${backend}")" backup -tag "${backup_id}" -ignore '.git' "${BACKUP_ROOT}/" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
         check_result $? "plakar backup"
 }
 
@@ -1559,8 +1765,9 @@ function restore_plakar {
         # '<date> <snapshot id> <size> <duration> <path> <tags>', so the id is field 2
         id="$("${BIN_DIR}/plakar" at "${repository}" ls -tags | grep "${backup_id}" | tail -n 1 | awk '{print $2}')"
         check_snapshot_id "${id}" plakar "${backup_id}" || return 1
+        set_plakar_tuning_args
         # -skip-permissions keeps the restore comparable with the other programs
-        "${BIN_DIR}/plakar" at "${repository}" restore -to "${RESTORE_DIR}" -skip-permissions "${id}" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
+        "${BIN_DIR}/plakar" "${TUNING_ARGS[@]}" at "${repository}" restore -to "${RESTORE_DIR}" -skip-permissions "${id}" >> "${LOG_DIR}/${PROGRAM}.plakar.log" 2>&1
         check_result $? "plakar restore"
 }
 
@@ -1696,6 +1903,8 @@ function clear_repositories {
                 fi
                 clear_"${backup_software}"_repository "${backend}"
         done
+        # The repositories are empty, so they no longer belong to any profile
+        forget_repository_profile "${backend}"
         log "Clearing done" "NOTICE"
 }
 
@@ -1714,7 +1923,7 @@ function init_repositories {
                 log_quit "Backup root [${BACKUP_ROOT}] does not exist. Point BACKUP_ROOT at your dataset, or use --git to download the git dataset." "CRITICAL"
         fi
 
-        log "Initializing repositories. Backend: ${backend}." "NOTICE"
+        log "Initializing repositories. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
                         log "Skipping ${backup_software}: it has no ${backend} backend." "NOTICE"
@@ -1722,6 +1931,8 @@ function init_repositories {
                 fi
                 init_"${backup_software}"_repository "${backend}"
         done
+        # Remember which profile these repositories belong to, see check_repository_profile
+        record_repository_profile "${backend}"
         log "Initialization done." "NOTICE"
 }
 
@@ -1826,7 +2037,9 @@ function benchmark_backup {
         local backup_id
         local CSV_HEADER
 
-        echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend}, Git: ${git}" >> "${CSV_RESULT_FILE}"
+        check_repository_profile "${backend}"
+
+        echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend}, Profile: ${PROFILE}, Git: ${git}" >> "${CSV_RESULT_FILE}"
         CSV_HEADER=","
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
@@ -1924,6 +2137,8 @@ function benchmark_restore {
         local backup_id_timestamp="${3:-false}"
         local backup_id
 
+        check_repository_profile "${backend}"
+
         if [ "${git}" == true ]; then
                 benchmark_restore_git "${backend}"
         else
@@ -1987,6 +2202,13 @@ function usage {
         echo "                                  bupstash and borg 1.x have no s3 backend and are skipped there"
         echo "--local                           Alias of --backend=local"
         echo "--remote                          Alias of --backend=sftp"
+        echo "--profile=default|equalised|best  How much each program is tuned (defaults to default)"
+        echo "                                    default:   no compression nor concurrency option is passed"
+        echo "                                    equalised: pushed as close to EQUALISED_ZSTD_LEVEL and"
+        echo "                                               EQUALISED_THREADS as each program allows"
+        echo "                                    best:      strongest compression and most parallelism"
+        echo "                                  Repositories must be cleared and reinitialized between two"
+        echo "                                  profiles, or they would deduplicate against each other"
         echo "--git                             Use git dataset (multiple version benchmark). WARNING: deletes and re-clones BACKUP_ROOT"
         echo "--backup-id-timestamp             Add a timestamp as backup id when not using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id"
         echo ""
@@ -2012,6 +2234,7 @@ fi
 
 cmd=""
 BACKEND="local"
+PROFILE="default"
 USE_GIT_VERSIONS=false
 ALL=false
 CONFIG_FILE="backup-bench.conf"
@@ -2058,6 +2281,9 @@ for i in "${@}"; do
                 ;;
                 --backend=*)
                 BACKEND="${i##*=}"
+                ;;
+                --profile=*)
+                PROFILE="${i##*=}"
                 ;;
                 --local)
                 BACKEND="local"
@@ -2126,6 +2352,19 @@ case "${BACKEND}" in
         log_quit "Unknown backend [${BACKEND}]. Supported backends: local, sftp, s3." "CRITICAL"
         ;;
 esac
+
+# 'equalized' is accepted as an alias, so both spellings work
+case "${PROFILE}" in
+        default|equalised|best)
+        ;;
+        equalized)
+        PROFILE="equalised"
+        ;;
+        *)
+        log_quit "Unknown profile [${PROFILE}]. Supported profiles: default, equalised, best." "CRITICAL"
+        ;;
+esac
+log "Using the ${PROFILE} tuning profile" "NOTICE"
 
 if [ "${BACKEND}" == s3 ] || [ "${cmd}" == "setup_s3_buckets" ]; then
         [ -z "${S3_ENDPOINT}" ] && log_quit "The s3 backend needs S3_ENDPOINT to be set in [${CONFIG_FILE}]." "CRITICAL"
