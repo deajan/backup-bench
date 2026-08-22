@@ -12,6 +12,8 @@ This repo aims to compare different backup solutions among:
  - [restic](https://restic.net)
  - [kopia](https://www.kopia.io)
  - [duplicacy](https://duplicacy.com)
+ - [rustic](https://rustic.cli.rs)
+ - [plakar](https://plakar.io)
  - your tool (PRs to support new backup tools are welcome)
  
 The idea is to have a script that executes all backup programs on the same datasets.
@@ -23,7 +25,7 @@ Time spent by the backup program is measured by the script so we get as accurate
 
 While backups are done, cpu/memory/disk metrics are saved so we know how "resource hungry" a backup program can be.
  
-All backup programs are setup to use SSH in order to compare their performance regardless of the storage backend.
+All backup programs are benchmarked against the same storage backends, so their performance can be compared regardless of where the repository lives: a local filesystem, a remote server over SSH/SFTP, or an S3 bucket (`--backend=local|sftp|s3`).
 
 When available, we'll tune the encryption algorithm depending on the results of a benchmark. For instance, kopia has a `kopia benchmark compression --data-file=/some/big/data/file` option to find out which compression / crypto works best on the current architecture.
 This is *REALLY NICE TO HAVE* when choices need to be made, aware of current architecture.
@@ -43,67 +45,87 @@ If you feel that I didn't give a specific program enough attention, feel free to
 
 # In depth comparison of backup solutions
 
-Last update: 03 October 2022
+Last update: 22 August 2026
 
-|Backup software|Version|
-|------------------|--------|
-|borg|1.2.2|
-|borg beta|2.0.0b2|
-|restic|0.14.0|
-|kopia|0.12.0|
-|bupstash|0.11.1|
-|duplicacy|2.7.2|
+The versions below are the latest releases at that date.
+A `?` in the matrix means nobody verified that cell yet, it does not mean "no". Cells that changed since the October 2022 review link to the documentation or the source code that says so.
+
+|Backup software|Version|Latest release|
+|------------------|--------|--------|
+|borg|1.4.5|2026-07-18|
+|borg beta|2.0.0b22|2026-07-22|
+|restic|0.19.1|2026-07-05|
+|rustic|0.11.4|2026-08-18|
+|kopia|0.23.1|2026-06-16|
+|bupstash|0.12.0|2022-11-07 (8)|
+|duplicacy|3.2.5|2025-05-03|
+|plakar|1.1.4|2026-06-30|
 
 The following list is my personal shopping list when it comes to backup solutions, and might not be complete, you're welcome to provide PRs to update it. ;)
 
-| **Goal**                           | **Functionality**                                                        | **borg**              | **restic**     | **kopia**                                  | **bupstash**          | **duplicacy** |
-|------------------------------------|--------------------------------------------------------------------------|-----------------------|----------------|--------------------------------------------|-----------------------|---------------|
-| **Reliability**                    | Redundant index copies                                                   | ?                     | ?              | Yes                                        | yes, redundant + sync | No indexes used|
-| **Reliability**                    | Continue restore on bad blocks in repository                             | ?                     | ?              | Yes (can ignore errors when restoring)     | No                    | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168)|
-| **Reliability**                    | Data checksumming                                                        | Yes (CRC & HMAC)      | ?              | No (Reed–Solomon in the works)             | HMAC                  | Yes           |
-| **Reliability**                    | Backup coherency (detecting in flight file changes while backing up)     | [Yes](https://github.com/deajan/backup-bench/issues/5#issue-1363881841) | [Yes](https://forum.restic.net/t/what-happens-if-file-changes-during-backup/264/2) | ? | [No](https://bupstash.io/doc/guides/Filesystem%20Backups.html) | ? |
-| **Restoring Data**                 | Backup mounting as filesystem                                            | Yes                   | Yes            | Yes                                        | No                    | No            |
-| **File management**                | File includes / excludes bases on regexes                                | Yes                   | ?              | ?                                          | ?                     | Yes           |
-| **File management**                | Supports backup XATTRs                                                   | Yes                   | ?              | No                                         | Yes                   | ?             |
-| **File management**                | Supports backup ACLs                                                     | Yes                   | ?              | No                                         | Yes                   | ?             |
-| **File management**                | Supports hardlink identification (no multiple stored hardlinked files    | No ([borg2 will](https://github.com/borgbackup/borg/issues/2379) | [Yes](https://forum.restic.net/t/trying-to-understand-how-hard-links-are-handled-by-restic/3785) |  [No](https://github.com/kopia/kopia/issues/544#issuecomment-988329366)  | [Yes](https://github.com/deajan/backup-bench/issues/13#issue-1363979532)                  | [No](https://forum.duplicacy.com/t/hard-links-not-properly-restored/962/3)             |
-| **File management**                | Supports sparse files (thin provisionned files on disk)                  | [Yes](https://github.com/borgbackup/borg/pull/5561) | [Yes](https://github.com/restic/restic/pull/3854)              | [Yes](https://github.com/kopia/kopia/pull/1823)                                          | [Yes](https://bupstash.io/doc/man/bupstash-restore.html)                   | ?              |
-| **File management**                | Can exclude CACHEDIR.TAG(3) directories                                  | Yes                   | Yes            | Yes                                        | [Yes](https://github.com/andrewchambers/bupstash/commit/2ecaab63d178bc26198855a8313ab6288544ecd4/)               | No            |
-| **Dedup & compression efficiency** | Is data compressed                                                       | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
-| **Dedup & compression efficiency** | Uses newer compression algorithms (ie zstd)                              | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
-| **Dedup & compression efficiency** | Can files be excluded from compression by extension                      | ?                     | No             | Yes                                        | No                    | No            |
-| **Dedup & compression efficiency** | Is data deduplicated                                                     | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
-| **Platform support**               | Programming lang                                                         | Python                | Go             | Go                                         | Rust                  | Go            |
-| **Platform support**               | Unix Prebuilt binaries                                                   | Yes                   | Yes            | Yes                                        | No                    | Yes           |
-| **Platform support**               | Windows support                                                          | Yes (WSL)             | Yes            | Yes                                        | No                    | Yes           |
-| **Platform support**               | Windows first class support (PE32 binary)                                | No                    | Yes            | Yes                                        | No                    | Yes           |
-| **Platform support**               | Unix snapshot support where snapshot path prefix is removed              | ?                     | ?              | ?                                          | ?                     | ?             |
-| **Platform support**               | Windows VSS snapshot support where snapshot path prefix is removed       | No                    | Yes            | No, but pre-/post hook VSS script provided | No                    | Yes           |
-| **WAN Support**                    | Can backups be sent to a remote destination without keeping a local copy | Yes                   | Yes            | Yes                                        | Yes                   | Yes           |
-| **WAN Support**                    | What other remote backends are supported ?                               | rclone                | (1)            | (2)                                        | None                  | (1)           |
-| **Security**                       | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ?      | Yes, AES-256-GCM      | Yes, AES-256   | Yes, AES-256-GCM or Chacha20Poly1305       | Yes, Chacha20Poly1305 | Yes, AES-256-GCM|
-| **Security**                       | Are metadatas encrypted too ?                                            | ?                     | [Yes](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | Yes                   | Yes           |
-| **Security**                       | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687)                    | [No](https://restic.readthedocs.io/en/latest/100_references.html#threat-model)              | ?                                          | No (4)                | ?             |
-| **Security**                       | Can a compromised client delete backups?                                 | No (append mode)      | [No](https://github.com/restic/restic/issues/3917#issuecomment-1242772365) (append mode)| Supports optional object locking           | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets|
-| **Security**                       | Can a compromised client restore encrypted data?                         | Yes                   | ?              | ?                                          | No                    | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662)           |
-| **Security**                       | Are pull backup scenarios possible?                                      | Yes                   | No             | No                                         | No, planned           | ?             |
-| **Misc**                           | Does the backup software support pre/post execution hooks?               | ?                     | ?              | Yes                                        | No                    | [Yes](https://forum.duplicacy.com/t/pre-command-and-post-command-scripts/1100)             |
-| **Misc**                           | Does the backup software provide an API for their client ?               | Yes (JSON cmd)        | No, but REST API on server | No, but REST API on server     | No                    | No            |
-| **Misc**                           | Does the backup software provide an automatic GFS system ?                | Yes                   | [Yes](https://restic.readthedocs.io/en/stable/060_forget.html#removing-snapshots-according-to-a-policy)             | Yes                                        | No                    | ?             |
-| **Misc**                           | Does the backup software provide a crypto benchmark ?                     | No, available in beta | No             | Yes                                        | Undocumented          | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078)|
-| **Misc**                           | Can a repo be synchronized to another repo ?                             | ?                     | ?              | Yes                                        | Yes                   | Yes           |
+| **Goal** | **Functionality** | **borg** | **borg 2** | **restic** | **rustic** | **kopia** | **bupstash** | **duplicacy** | **plakar** |
+|---|---|---|---|---|---|---|---|---|---|
+| **Reliability** | Redundant index copies | ? | ? | ? | ? | Yes | yes, redundant + sync | No indexes used | ? |
+| **Reliability** | Continue restore on bad blocks in repository | ? | ? | ? | ? | Yes (can ignore errors when restoring, optional [Reed-Solomon ECC](https://kopia.io/docs/features/)) | No | Yes, [erasure coding](https://forum.duplicacy.com/t/new-feature-erasure-coding/4168) | ? |
+| **Reliability** | Data checksumming | Yes (CRC & HMAC) | Yes ([BLAKE3 by default](https://borgbackup.readthedocs.io/en/master/changes.html)) | Yes, [SHA-256](https://restic.readthedocs.io/en/stable/100_references.html) | Yes, SHA-256 (restic format) | Yes (+ optional [Reed-Solomon ECC](https://kopia.io/docs/features/)) | HMAC | Yes | Yes, keyed [BLAKE3](https://www.plakar.io/posts/2025-02-28/audit-of-plakar-cryptography/) digest trees |
+| **Reliability** | Backup coherency (detecting in flight file changes while backing up) | [Yes](https://github.com/deajan/backup-bench/issues/5#issue-1363881841) | [Yes](https://github.com/deajan/backup-bench/issues/5#issue-1363881841) | [Yes](https://forum.restic.net/t/what-happens-if-file-changes-during-backup/264/2) | ? | ? | [No](https://bupstash.io/doc/guides/Filesystem%20Backups.html) | ? | ? |
+| **Restoring Data** | Backup mounting as filesystem | Yes | Yes | Yes | Yes ([mount](https://rustic.cli.rs/docs/commands/restore/using_mount.html) or [webdav](https://rustic.cli.rs/docs/commands/restore/webdav.html)) | Yes | No | No | Yes (`plakar mount`) |
+| **File management** | File includes / excludes bases on regexes | Yes | Yes | [No, glob patterns](https://restic.readthedocs.io/en/stable/040_backup.html) | [No, glob patterns](https://rustic.cli.rs/docs/commands/backup/excluding_files.html) | ? | ? | Yes | No, gitignore style patterns |
+| **File management** | Supports backup XATTRs | Yes | Yes | [Yes](https://github.com/restic/restic/blob/master/internal/data/node.go) | [No](https://rustic.cli.rs/docs/commands/backup/special_items_metadata.html) | [No](https://github.com/kopia/kopia/issues/544) | Yes | ? | Yes (unless `-no-xattr`) |
+| **File management** | Supports backup ACLs | Yes | Yes | Windows only, [security descriptors](https://github.com/restic/restic/blob/master/internal/data/node.go) | ? | [No](https://github.com/kopia/kopia/issues/3884) | Yes | ? | ? |
+| **File management** | Supports hardlink identification (no multiple stored hardlinked files) | No, [fixed in borg 2](https://github.com/borgbackup/borg/issues/2379) | Yes, [symmetric hlid](https://borgbackup.readthedocs.io/en/master/changes.html) | [Yes](https://forum.restic.net/t/trying-to-understand-how-hard-links-are-handled-by-restic/3785) | ? | [No](https://github.com/kopia/kopia/issues/544#issuecomment-988329366) | [Yes](https://github.com/deajan/backup-bench/issues/13#issue-1363979532) | [No](https://forum.duplicacy.com/t/hard-links-not-properly-restored/962/3) | ? |
+| **File management** | Supports sparse files (thin provisionned files on disk) | [Yes](https://github.com/borgbackup/borg/pull/5561) | Yes | [Yes](https://github.com/restic/restic/pull/3854) | Yes, [restore since 0.11.4](https://github.com/rustic-rs/rustic/releases) | [Yes](https://github.com/kopia/kopia/pull/1823) | [Yes](https://bupstash.io/doc/man/bupstash-restore.html) | ? | ? |
+| **File management** | Can exclude CACHEDIR.TAG(3) directories | Yes | Yes | Yes | [Yes](https://rustic.cli.rs/docs/commands/backup/excluding_files.html) | Yes | [Yes](https://github.com/andrewchambers/bupstash/commit/2ecaab63d178bc26198855a8313ab6288544ecd4/) | No | ? |
+| **Dedup & compression efficiency** | Is data compressed | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| **Dedup & compression efficiency** | Uses newer compression algorithms (ie zstd) | Yes | Yes, [incl. negative levels](https://borgbackup.readthedocs.io/en/master/changes.html) | Yes | Yes | Yes | Yes | Yes | ? (compresses, algorithm not documented) |
+| **Dedup & compression efficiency** | Can files be excluded from compression by extension | [No](https://borgbackup.readthedocs.io/en/stable/usage/create.html), only an auto heuristic | No, only an auto heuristic | No | ? | Yes | No | No | ? |
+| **Dedup & compression efficiency** | Is data deduplicated | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| **Platform support** | Programming lang | Python | Python | Go | Rust | Go | Rust | Go | Go |
+| **Platform support** | Unix Prebuilt binaries | Yes | Yes | Yes | Yes | Yes | No | Yes | Yes |
+| **Platform support** | Windows support | Yes (WSL) | Yes (WSL) | Yes | Yes | Yes | No | Yes | Yes |
+| **Platform support** | Windows first class support (PE32 binary) | No | No | Yes | Yes | Yes | No | Yes | Yes |
+| **Platform support** | Unix snapshot support where snapshot path prefix is removed | ? | ? | ? | ? | ? | ? | ? | ? |
+| **Platform support** | Windows VSS snapshot support where snapshot path prefix is removed | No | No | Yes | ? | No, but pre-/post hook VSS script provided | No | Yes | ? |
+| **WAN Support** | Can backups be sent to a remote destination without keeping a local copy | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| **WAN Support** | What other remote backends are supported ? | rclone | (5) | (1) | (6) | (2) | None | (1) | (7) |
+| **Security** | Are encryption protocols secure (AES-256-GCM / PolyChaCha / etc ) ? | Yes, AES-256-GCM | Yes, [AES-256-OCB or ChaCha20-Poly1305](https://borgbackup.readthedocs.io/en/master/changes.html) | Yes, AES-256 | Yes, AES-256 (restic format) | Yes, AES-256-GCM or Chacha20Poly1305 | Yes, Chacha20Poly1305 | Yes, AES-256-GCM | Yes, [AES-256-GCM-SIV, Argon2id KDF](https://www.plakar.io/posts/2025-02-28/audit-of-plakar-cryptography/) |
+| **Security** | Are metadatas encrypted too ? | [Yes](https://borgbackup.readthedocs.io/en/stable/internals/data-structures.html) | [Yes](https://borgbackup.readthedocs.io/en/master/internals/data-structures.html) | [Yes](https://restic.readthedocs.io/en/latest/100_references.html#threat-model) | Yes (restic format) | [Yes](https://kopia.io/docs/features/) | Yes | Yes | [Yes](https://github.com/PlakarKorp/kloset) |
+| **Security** | Can encrypted / compressed data be guessed (CRIME/BREACH style attacks)? | [No](https://github.com/borgbackup/borg/issues/3687) | [No](https://github.com/borgbackup/borg/issues/3687) | [No](https://restic.readthedocs.io/en/latest/100_references.html#threat-model) | No (restic format) | ? | No (4) | ? | ? |
+| **Security** | Can a compromised client delete backups? | No (append mode) | No (append mode) | [No](https://github.com/restic/restic/issues/3917#issuecomment-1242772365) (append mode) | No, [append-only by default](https://github.com/rustic-rs/rustic) | Supports optional object locking | No (ssh restriction ) | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) + immutable targets | ? |
+| **Security** | Can a compromised client restore encrypted data? | Yes | Yes | ? | ? | ? | No | No [pubkey](https://forum.duplicacy.com/t/new-feature-rsa-encryption/2662) | ? |
+| **Security** | Are pull backup scenarios possible? | Yes | Yes | No | ? | No | No, planned | ? | ? |
+| **Misc** | Does the backup software support pre/post execution hooks? | ? | ? | ? | [Yes](https://rustic.cli.rs/docs/commands/misc/hooks.html) | Yes | No | [Yes](https://forum.duplicacy.com/t/pre-command-and-post-command-scripts/1100) | ? |
+| **Misc** | Does the backup software provide an API for their client ? | Yes (JSON cmd) | Yes (JSON cmd) | No, but REST API on server | ? | No, but REST API on server | No | No | Yes (`plakar server`, `plakar ui`) |
+| **Misc** | Does the backup software provide an automatic GFS system ? | Yes | Yes | [Yes](https://restic.readthedocs.io/en/stable/060_forget.html#removing-snapshots-according-to-a-policy) | Yes ([forget policies](https://github.com/rustic-rs/rustic)) | Yes | No | Yes, [prune -keep](https://forum.duplicacy.com/t/prune-command-details/1005) | Yes (`plakar policy` + `plakar prune`) |
+| **Misc** | Does the backup software provide a crypto benchmark ? | No | Yes (`borg benchmark cpu`) | No | ? | Yes | Undocumented | No, [generic benchmark](https://forum.duplicacy.com/t/benchmark-command-details/1078) | ? |
+| **Misc** | Can a repo be synchronized to another repo ? | ? | ? | ? | Yes (`rustic copy`) | Yes | Yes | Yes | Yes (`plakar sync`) |
 
 - (1) SFTP/S3/Wasabi/B2/Aliyun/Swift/Azure/Google Cloud
 - (2) SFTP/Google Cloud/S3 and S3-compatible storage like Wasabi/B2/Azure/WebDav/rclone*
 - (3) see https://bford.info/cachedir/
 - (4) For bupstash, CRIME/BREACH style attacks are mitigated if you disable read access for backup clients, and keep decryption keys off server.
+- (5) borg 2 reaches repositories through [borgstore](https://github.com/borgbackup/borgstore): file, ssh, sftp, s3, b2, rclone and rest
+- (6) rustic: SFTP/REST server/rclone, and any [opendal](https://opendal.apache.org) service (S3, Azure, GCS, ...)
+- (7) plakar: SFTP and S3, through store connectors installed separately with `plakar pkg add`
+- (8) bupstash released 0.12.0 in November 2022 and its last commit dates from February 2024, so its column is unlikely to have moved since the 2022 review
 
 A quick word about backup coherence:
 
-While some backup tools might detect filesysetm changes inflight, it's usually the burden of a snapshot system (zfs, bcachefs, lvm, btrfs, vss...) to provide the backup program a reliable static version of the filesystem.
+While some backup tools might detect filesystem changes inflight, it's usually the burden of a snapshot system (zfs, bcachefs, lvm, btrfs, vss...) to provide the backup program a reliable static version of the filesystem.
 Still it's a really nice to have in order to detect problems on backups without those snapshot aware tools, like plain XFS/EXT4 partitions.
 
 # Results
+
+## 2026-08-13
+
+### Used system specs
+
+### Special considerations
+
+Since borg has a benchmark command, I ran it on my source machine and decided to go with the resulting encryption algorithm.
+
+[Work in progress]
+
 
 ## 2022-10-02
 
