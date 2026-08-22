@@ -256,6 +256,47 @@ function get_profile_threads {
         esac
 }
 
+function get_backup_software_settings {
+        # Echoes every compression and concurrency option the current profile applies to
+        # one program, so a result block states the settings that produced it.
+        # Most of it comes straight from the program's own tuning function. kopia sets its
+        # compression as a repository policy and rustic stores it inside the repository, so
+        # those two are completed here from the same profile values.
+        # We deliberately don't log() from here, since our caller captures our stdout
+        local backup_software="${1}"
+        local settings=""
+        local level
+
+        if declare -F "set_${backup_software}_tuning_args" > /dev/null; then
+                "set_${backup_software}_tuning_args"
+                settings="${TUNING_ARGS[*]}"
+        fi
+
+        level="$(get_profile_zstd_level)"
+        case "${backup_software}" in
+                kopia)
+                # Compression is a repository policy, see set_kopia_policies
+                case "${PROFILE}" in
+                        equalised)
+                        settings="policy --compression zstd ${settings}"
+                        ;;
+                        best)
+                        settings="policy --compression zstd-best-compression ${settings}"
+                        ;;
+                esac
+                ;;
+                rustic)
+                # Compression is stored in the repository at init time
+                [ -n "${level}" ] && settings="init --set-compression ${level} ${settings}"
+                ;;
+        esac
+
+        # Trim, and say so explicitly when the profile passed nothing at all
+        settings="$(echo "${settings}" | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')"
+        [ -z "${settings}" ] && settings="none"
+        echo "${settings}"
+}
+
 function get_profile_marker_file {
         # Remembers which profile built the repositories of a backend
         echo "${BACKUP_BENCH_ROOT}/state/${1}.profile"
@@ -2035,7 +2076,9 @@ function benchmark_backup {
         local backup_id_timestamp="${3:-false}"
         local backup_software
         local backup_id
+        local settings
         local CSV_HEADER
+        local CSV_ARGUMENTS
 
         check_repository_profile "${backend}"
 
@@ -2046,6 +2089,23 @@ function benchmark_backup {
                 CSV_HEADER="${CSV_HEADER}${backup_software} $(get_version_"${backup_software}"),"
         done
         echo "${CSV_HEADER}" >> "${CSV_RESULT_FILE}"
+
+        # Record what each program was actually handed. The profile name alone doesn't say
+        # it: in the best profile plakar gets nothing (its own default is already more
+        # parallel), borg never gets a thread count, and duplicacy never gets a compression
+        # option, since neither program has one
+        CSV_ARGUMENTS="arguments,"
+        for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        CSV_ARGUMENTS="${CSV_ARGUMENTS}n/a,"
+                        continue
+                fi
+                settings="$(get_backup_software_settings "${backup_software}")"
+                log "Settings handed to ${backup_software}: ${settings}" "NOTICE"
+                # Quoted, because options such as 'zstd,3' hold the CSV separator
+                CSV_ARGUMENTS="${CSV_ARGUMENTS}\"${settings}\","
+        done
+        echo "${CSV_ARGUMENTS}" >> "${CSV_RESULT_FILE}"
 
         if [ "${backend}" == s3 ] && [ "${S3_DROP_TARGET_CACHES}" != true ]; then
                 log "S3_DROP_TARGET_CACHES is disabled: the page cache of the S3 server is not dropped between measures." "WARN"
