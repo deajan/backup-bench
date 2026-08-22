@@ -226,6 +226,27 @@ function supports_backend {
         return 0
 }
 
+function get_exec_outcome {
+        # Echoes why a task did not complete, so the results file can say 'timeout' or
+        # 'failed' instead of the elapsed seconds. Writing the seconds there would hand us
+        # a number that looks like a measurement while only recording the moment we gave up.
+        # ExecTasks returns the exit code of the task it watched, and sets
+        # HARD_MAX_EXEC_TIME_REACHED_<id> when it killed that task for exceeding its hard
+        # execution time.
+        # The code we report is the one our own backup_/restore_ function returned, not
+        # the backup program's: check_result already turned that one into a 1, and logged
+        # it in the program's own log file
+        local result="${1}"
+        local id="${2}"
+        local timed_out_var="HARD_MAX_EXEC_TIME_REACHED_${id}"
+
+        if [ "${!timed_out_var}" == true ]; then
+                echo "timeout"
+        else
+                echo "failed(${result})"
+        fi
+}
+
 function get_profile_zstd_level {
         # Echoes the zstd level the current profile asks for, or nothing when the profile
         # passes no compression option at all
@@ -1831,6 +1852,34 @@ function setup_git_dataset {
         check_result $? "git dataset clone" true
 }
 
+function get_source_size {
+        # Records the size of the dataset that was just backed up, so a compression and
+        # deduplication ratio can be computed from a result block alone, without knowing
+        # which dataset (or which git tag) produced it.
+        # Measured the same way repository sizes are, with du, and with the same '.git'
+        # exclusion every program was given, so both figures are comparable.
+        # The value is repeated in every column, so a program's ratio is the division of
+        # two cells of its own column
+        local backend="${1:-local}"
+        local backup_software
+        local size
+
+        local CSV_SOURCE_SIZE="source size(kb),"
+
+        size="$(du -cs --exclude=.git "${BACKUP_ROOT}" 2>/dev/null | tail -n 1 | awk '{print $1}')"
+        [ -z "${size}" ] && size=0
+        log "Source dataset size: ${size} kb." "NOTICE"
+
+        for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}n/a,"
+                        continue
+                fi
+                CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}${size},"
+        done
+        echo "${CSV_SOURCE_SIZE}" >> "${CSV_RESULT_FILE}"
+}
+
 function get_repo_sizes {
         local backend="${1:-local}"
         local backup_software
@@ -2026,6 +2075,8 @@ function benchmark_backup_standard {
         local backup_software
         local seconds_begin
         local exec_time
+        local exec_result
+        local outcome
 
         local CSV_BACKUP_EXEC_TIME="backup(s),"
 
@@ -2041,12 +2092,23 @@ function benchmark_backup_standard {
                 # Launch the backup in the background, so ExecTasks can enforce timeouts
                 backup_"${backup_software}" "${backend}" "${backup_id}" &
                 ExecTasks "$!" "${backup_software}_bench" false 3600 36000 3600 36000
+                exec_result=$?
                 exec_time=$((SECONDS - seconds_begin))
-                CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time},"
-                log "It took ${exec_time} seconds to backup." "NOTICE"
+                if [ "${exec_result}" -eq 0 ]; then
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time},"
+                        log "It took ${exec_time} seconds to backup." "NOTICE"
+                else
+                        # Never write the elapsed seconds of a backup that did not finish
+                        outcome="$(get_exec_outcome "${exec_result}" "${backup_software}_bench")"
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${outcome},"
+                        log "Backup of ${backup_software} did not complete after ${exec_time} seconds: ${outcome}." "CRITICAL"
+                fi
         done
 
         echo "${CSV_BACKUP_EXEC_TIME}" >> "${CSV_RESULT_FILE}"
+        # Recorded per backup, not once per run: with the git dataset every tag is a
+        # different amount of data
+        get_source_size "${backend}"
         get_repo_sizes "${backend}"
 }
 
@@ -2129,6 +2191,8 @@ function benchmark_restore_standard {
         local backup_software
         local seconds_begin
         local exec_time
+        local exec_result
+        local outcome
         local restored_path
         local result
 
@@ -2151,7 +2215,16 @@ function benchmark_restore_standard {
                 # Launch the restore in the background, so ExecTasks can enforce timeouts
                 restore_"${backup_software}" "${backend}" "${backup_id}" &
                 ExecTasks "$!" "${backup_software}_restore" false 3600 18000 3600 18000
+                exec_result=$?
                 exec_time=$((SECONDS - seconds_begin))
+                if [ "${exec_result}" -ne 0 ]; then
+                        # Never write the elapsed seconds of a restore that did not finish,
+                        # and don't compare a restore directory we know to be incomplete
+                        outcome="$(get_exec_outcome "${exec_result}" "${backup_software}_restore")"
+                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${outcome},"
+                        log "Restore of ${backup_software} did not complete after ${exec_time} seconds: ${outcome}. Skipping the comparison." "CRITICAL"
+                        continue
+                fi
                 CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${exec_time},"
                 log "It took ${exec_time} seconds to restore." "NOTICE"
 
