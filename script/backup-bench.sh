@@ -137,10 +137,13 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2026 by Orsiris de Jong"
-PROGRAM_BUILD=2026081803
+PROGRAM_BUILD=2026081804
 
 # Configuration files older than this one lack settings this script needs
-MINIMUM_CONF_VERSION=2026081803
+MINIMUM_CONF_VERSION=2026081804
+
+# Set by repeat_benchmarks so every result block says which run produced it
+RUN_NUMBER=""
 
 # Programs that cannot reach every backend. Anything not listed here is assumed to
 # support all of them.
@@ -2144,7 +2147,10 @@ function benchmark_backup {
 
         check_repository_profile "${backend}"
 
-        echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend}, Profile: ${PROFILE}, Git: ${git}" >> "${CSV_RESULT_FILE}"
+        # ${RUN_NUMBER} is only set when repeat_benchmarks drives us
+        local run_info=""
+        [ -n "${RUN_NUMBER}" ] && run_info=" Run: ${RUN_NUMBER}/${RUNS},"
+        echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend},${run_info} Profile: ${PROFILE}, Git: ${git}" >> "${CSV_RESULT_FILE}"
         CSV_HEADER=","
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
@@ -2293,6 +2299,38 @@ function benchmarks {
         benchmark_restore "${backend}" "${git}" "${backup_id_timestamp}"
 }
 
+function repeat_benchmarks {
+        # Runs the whole cycle ${RUNS} times, so a difference between two programs or two
+        # profiles can be told apart from the noise of a single measure.
+        #
+        # The repetition has to wrap the clearing and the initialization, not just the
+        # backup: running the same backup twice into the same repository would find every
+        # chunk already there the second time, and would measure deduplication instead of
+        # the backup itself.
+        #
+        # The dataset, on the other hand, is prepared once. Every run checks its tags out
+        # again from the same clone, and since each run starts from empty repositories
+        # there is no state left for a fresh clone to change
+        local backend="${1:-local}"
+        local git="${2:-false}"
+        local backup_id_timestamp="${3:-false}"
+        local run
+
+        log "Running ${RUNS} benchmark cycles on the ${backend} backend with the ${PROFILE} profile" "NOTICE"
+        [ "${git}" == true ] && setup_git_dataset
+
+        for ((run = 1; run <= RUNS; run++)); do
+                RUN_NUMBER="${run}"
+                log "Starting run ${run} of ${RUNS}" "NOTICE"
+                clear_repositories "${backend}"
+                # false: the dataset is already there, it must not be downloaded again
+                init_repositories "${backend}" false
+                benchmarks "${backend}" "${git}" "${backup_id_timestamp}"
+        done
+        RUN_NUMBER=""
+        log "Finished ${RUNS} benchmark cycles on the ${backend} backend" "NOTICE"
+}
+
 function versions {
         local backup_software
         local version
@@ -2324,8 +2362,9 @@ function usage {
         echo "--stop-http-targets               Stop http servers for kopia and restic (executed on target)"
         echo "--benchmark-backup                Run backup benchmarks"
         echo "--benchmark-restore               Run restore benchmarks, restores to local restore path"
-        echo "--benchmarks                      Run both backup and restore benchmarks"
-        echo "--all                             Clear, init and run backup with git dataset on every configured backend"
+        echo "--benchmarks                      Run both backup and restore benchmarks once"
+        echo "--repeat-benchmarks               Clear, init and benchmark RUNS times, so results carry their own variance"
+        echo "--all                             Same as --repeat-benchmarks, with the git dataset, on every configured backend"
         echo ""
         echo "MODIFIERS"
         echo "--backend=local|sftp|s3           Storage backend to work on (defaults to local)"
@@ -2342,6 +2381,7 @@ function usage {
         echo "                                    best:      strongest compression and most parallelism"
         echo "                                  Repositories must be cleared and reinitialized between two"
         echo "                                  profiles, or they would deduplicate against each other"
+        echo "--runs=N                          How many cycles --repeat-benchmarks and --all run (defaults to RUNS)"
         echo "--git                             Use git dataset (multiple version benchmark). WARNING: deletes and re-clones BACKUP_ROOT"
         echo "--backup-id-timestamp             Add a timestamp as backup id when not using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id"
         echo ""
@@ -2368,6 +2408,7 @@ fi
 cmd=""
 BACKEND="local"
 PROFILE="default"
+RUNS_OVERRIDE=""
 USE_GIT_VERSIONS=false
 ALL=false
 CONFIG_FILE="backup-bench.conf"
@@ -2399,6 +2440,12 @@ for i in "${@}"; do
                 ;;
                 --benchmarks)
                 cmd="benchmarks"
+                ;;
+                --repeat-benchmarks)
+                cmd="repeat_benchmarks"
+                ;;
+                --runs=*)
+                RUNS_OVERRIDE="${i##*=}"
                 ;;
                 --benchmark-backup)
                 cmd="benchmark_backup"
@@ -2499,6 +2546,17 @@ case "${PROFILE}" in
 esac
 log "Using the ${PROFILE} tuning profile" "NOTICE"
 
+# --runs overrides the configured RUNS
+if [ -n "${RUNS_OVERRIDE}" ]; then
+        if ! [[ "${RUNS_OVERRIDE}" =~ ^[1-9][0-9]*$ ]]; then
+                log_quit "Invalid run count [${RUNS_OVERRIDE}]. It must be a positive integer." "CRITICAL"
+        fi
+        RUNS="${RUNS_OVERRIDE}"
+fi
+if ! [[ "${RUNS}" =~ ^[1-9][0-9]*$ ]]; then
+        log_quit "Invalid RUNS value [${RUNS}] in [${CONFIG_FILE}]. It must be a positive integer." "CRITICAL"
+fi
+
 if [ "${BACKEND}" == s3 ] || [ "${cmd}" == "setup_s3_buckets" ]; then
         [ -z "${S3_ENDPOINT}" ] && log_quit "The s3 backend needs S3_ENDPOINT to be set in [${CONFIG_FILE}]." "CRITICAL"
         export_s3_credentials
@@ -2517,9 +2575,7 @@ if [ "${ALL}" == true ]; then
                         export_s3_credentials
                 fi
                 log "Running all benchmarks on the ${one_backend} backend" "NOTICE"
-                clear_repositories "${one_backend}"
-                init_repositories "${one_backend}" true
-                benchmarks "${one_backend}" true "${BACKUP_ID_TIMESTAMP}"
+                repeat_benchmarks "${one_backend}" true "${BACKUP_ID_TIMESTAMP}"
         done
 elif [ -n "${cmd}" ]; then
         full_cmd="${cmd} ${BACKEND} ${USE_GIT_VERSIONS} ${BACKUP_ID_TIMESTAMP}"
