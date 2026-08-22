@@ -393,8 +393,10 @@ function install_s3_client {
 }
 
 function have_s3_client {
+        # Our warning goes to stderr on purpose: get_s3_repo_size captures our stdout,
+        # and a log line landing in there would end up in the results file
         if [ ! -x "${BIN_DIR}/mc" ]; then
-                log "No S3 client in [${BIN_DIR}/mc]. Install it with --install-s3-client, or create, empty and measure the buckets yourself." "WARN"
+                log "No S3 client in [${BIN_DIR}/mc]. Install it with --install-s3-client, or create, empty and measure the buckets yourself." "WARN" >&2
                 return 1
         fi
         return 0
@@ -444,7 +446,13 @@ function clear_s3_bucket {
         log "Emptying bucket [${bucket}]" "NOTICE"
         # mc rm exits non zero on an already empty bucket, which is not an error for us
         run_mc rm --recursive --force --quiet "${S3_MC_ALIAS}/${bucket}/" > /dev/null 2>&1
-        run_mc mb --ignore-existing "${S3_MC_ALIAS}/${bucket}" > /dev/null 2>&1
+        # mb only fails when the endpoint or the credentials are wrong. Staying silent there
+        # would let us benchmark a bucket still holding the previous run, and report figures
+        # that mean nothing
+        if ! run_mc mb --ignore-existing "${S3_MC_ALIAS}/${bucket}" > /dev/null 2>&1; then
+                log "Cannot reach bucket [${bucket}] on ${S3_ENDPOINT}. It may still hold data from an earlier run." "CRITICAL"
+                return 1
+        fi
         return 0
 }
 
@@ -1590,7 +1598,10 @@ function get_repo_sizes {
                 if [ "${backend}" == s3 ]; then
                         size="$(get_s3_repo_size "${backup_software}")"
                 else
-                        size="$(run_on_target "${backend}" "du -cs \"${TARGET_ROOT}/${backup_software}\"" 2>/dev/null | tail -n 1 | awk '{print $1}')"
+                        # Measure the repository itself, not the program's directory: on the
+                        # sftp backend that directory is also the user's home, and would add
+                        # its ssh keys and dotfiles to the figure
+                        size="$(run_on_target "${backend}" "du -cs \"${TARGET_ROOT}/${backup_software}/data\"" 2>/dev/null | tail -n 1 | awk '{print $1}')"
                 fi
                 [ -z "${size}" ] && size=0
                 CSV_SIZE="${CSV_SIZE}${size},"
