@@ -2350,6 +2350,62 @@ function benchmarks {
         benchmark_restore "${backend}" "${git}" "${backup_id_timestamp}"
 }
 
+function plan_benchmarks {
+        # Prints what a run would do, and what it would destroy, without doing any of it.
+        # A full sweep is ${RUNS} cycles per backend per profile, so it is worth knowing
+        # what you are committing a machine to before starting it
+        local backend="${1:-local}"
+        local git="${2:-false}"
+        local backup_software
+        local supported=0
+        local tag_count=1
+        local settings
+        local version
+
+        log "----- Plan: ${backend} backend, ${PROFILE} profile, ${RUNS} run(s). Nothing below is executed -----" "NOTICE"
+
+        if [ "${git}" == true ]; then
+                tag_count="${#GIT_TAGS[@]}"
+                log "Dataset:      ${BACKUP_ROOT}, deleted and re-cloned once from ${GIT_DATASET_REPOSITORY}" "NOTICE"
+                log "              ${tag_count} tag(s) backed up in this order: ${GIT_TAGS[*]}" "NOTICE"
+        else
+                log "Dataset:      ${BACKUP_ROOT}, used as is and never modified" "NOTICE"
+        fi
+        log "Restore dir:  ${RESTORE_DIR}, emptied before every single restore" "NOTICE"
+        log "Results:      ${CSV_RESULT_FILE}" "NOTICE"
+        if [ "${backend}" == s3 ]; then
+                log "Repositories: one bucket per program on ${S3_ENDPOINT}, named ${S3_BUCKET_PREFIX}<program>, emptied before every run" "NOTICE"
+        else
+                log "Repositories: ${TARGET_ROOT}/<program>/data, deleted before every run" "NOTICE"
+        fi
+
+        log "Programs, with the settings the ${PROFILE} profile hands them:" "NOTICE"
+        for backup_software in "${BACKUP_SOFTWARES[@]}"; do
+                if ! supports_backend "${backup_software}" "${backend}"; then
+                        log "  ${backup_software}: skipped, it has no ${backend} backend" "NOTICE"
+                        continue
+                fi
+                supported=$((supported + 1))
+                version="not installed"
+                [ -x "${BIN_DIR}/${backup_software}" ] && version="$(get_version_"${backup_software}")"
+                settings="$(get_backup_software_settings "${backup_software}")"
+                log "  ${backup_software} ${version}: ${settings}" "NOTICE"
+        done
+
+        if [ "${supported}" -eq 0 ]; then
+                log "No program in BACKUP_SOFTWARES can use the ${backend} backend, there would be nothing to measure" "WARN"
+                log "----- End of plan -----" "NOTICE"
+                return 0
+        fi
+
+        log "Every run clears and reinitializes ${supported} repositories, takes ${tag_count} backup(s) per program, then restores one snapshot per program" "NOTICE"
+        log "Totals over ${RUNS} run(s): $((RUNS * tag_count * supported)) backups, $((RUNS * supported)) restores, $((RUNS * supported)) repository clears" "NOTICE"
+        if [ "${PROFILE}" == best ]; then
+                log "The best profile compresses with zstd ${BEST_ZSTD_LEVEL}, which is slow. Expect this to take considerably longer than the other profiles" "WARN"
+        fi
+        log "----- End of plan -----" "NOTICE"
+}
+
 function repeat_benchmarks {
         # Runs the whole cycle ${RUNS} times, so a difference between two programs or two
         # profiles can be told apart from the noise of a single measure.
@@ -2415,6 +2471,7 @@ function usage {
         echo "--benchmark-restore               Run restore benchmarks, restores to local restore path"
         echo "--benchmarks                      Run both backup and restore benchmarks once"
         echo "--repeat-benchmarks               Clear, init and benchmark RUNS times, so results carry their own variance"
+        echo "--plan                            Print what a run would do and destroy, without running it"
         echo "--all                             Same as --repeat-benchmarks, with the git dataset, on every configured backend"
         echo ""
         echo "MODIFIERS"
@@ -2494,6 +2551,9 @@ for i in "${@}"; do
                 ;;
                 --repeat-benchmarks)
                 cmd="repeat_benchmarks"
+                ;;
+                --plan)
+                cmd="plan_benchmarks"
                 ;;
                 --runs=*)
                 RUNS_OVERRIDE="${i##*=}"
@@ -2618,7 +2678,21 @@ fi
 
 self_setup
 
-if [ "${ALL}" == true ]; then
+# --plan is checked before --all, so asking for a plan of the whole sweep prints it
+# instead of running it
+if [ "${cmd}" == "plan_benchmarks" ]; then
+        if [ "${ALL}" == true ]; then
+                for one_backend in local sftp s3; do
+                        if [ "${one_backend}" == s3 ] && [ -z "${S3_ENDPOINT}" ]; then
+                                log "Skipping the s3 backend: S3_ENDPOINT is not configured." "NOTICE"
+                                continue
+                        fi
+                        plan_benchmarks "${one_backend}" true
+                done
+        else
+                plan_benchmarks "${BACKEND}" "${USE_GIT_VERSIONS}"
+        fi
+elif [ "${ALL}" == true ]; then
         # prepare repos and run all tests on every backend we can reach, using the git dataset
         for one_backend in local sftp s3; do
                 if [ "${one_backend}" == s3 ]; then
