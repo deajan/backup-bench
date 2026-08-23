@@ -145,6 +145,9 @@ MINIMUM_CONF_VERSION=2026081804
 # Set by repeat_benchmarks so every result block says which run produced it
 RUN_NUMBER=""
 
+# Whether the current result block already carries its header, see write_csv_header
+CSV_HEADER_WRITTEN=false
+
 # Programs that cannot reach every backend. Anything not listed here is assumed to
 # support all of them.
 #   bupstash: only speaks the bupstash protocol over ssh, no object storage
@@ -2135,24 +2138,23 @@ function benchmark_backup_git {
         done
 }
 
-function benchmark_backup {
+function write_csv_header {
+        # Opens a result block: what produced it, which versions ran, and what each program
+        # was handed. Written by benchmark_backup, and by benchmark_restore when it runs on
+        # its own, so that --benchmark-restore doesn't leave a bare row with no context
         local backend="${1}"
         local git="${2:-false}"
-        local backup_id_timestamp="${3:-false}"
         local backup_software
-        local backup_id
         local settings
+        local run_info=""
         local CSV_HEADER
         local CSV_ARGUMENTS
 
-        check_repository_profile "${backend}"
-
         # ${RUN_NUMBER} is only set when repeat_benchmarks drives us
-        local run_info=""
         [ -n "${RUN_NUMBER}" ] && run_info=" Run: ${RUN_NUMBER}/${RUNS},"
         echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend},${run_info} Profile: ${PROFILE}, Git: ${git}" >> "${CSV_RESULT_FILE}"
-        CSV_HEADER=","
 
+        CSV_HEADER=","
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 CSV_HEADER="${CSV_HEADER}${backup_software} $(get_version_"${backup_software}"),"
         done
@@ -2178,6 +2180,20 @@ function benchmark_backup {
         if [ "${backend}" == s3 ] && [ "${S3_DROP_TARGET_CACHES}" != true ]; then
                 log "S3_DROP_TARGET_CACHES is disabled: the page cache of the S3 server is not dropped between measures." "WARN"
         fi
+
+        CSV_HEADER_WRITTEN=true
+}
+
+function benchmark_backup {
+        local backend="${1}"
+        local git="${2:-false}"
+        local backup_id_timestamp="${3:-false}"
+        local backup_id
+
+        check_repository_profile "${backend}"
+
+        # A backup always opens its own block, so repeated runs each get their own header
+        write_csv_header "${backend}" "${git}"
 
         if [ "${git}" == true ]; then
                 benchmark_backup_git "${backend}"
@@ -2295,6 +2311,12 @@ function benchmark_restore {
         local backup_id
 
         check_repository_profile "${backend}"
+
+        # Only when we run without a backup before us, so --benchmarks keeps writing one
+        # header for the two of us while --benchmark-restore still gets its context
+        if [ "${CSV_HEADER_WRITTEN}" != true ]; then
+                write_csv_header "${backend}" "${git}"
+        fi
 
         if [ "${git}" == true ]; then
                 benchmark_restore_git "${backend}"
