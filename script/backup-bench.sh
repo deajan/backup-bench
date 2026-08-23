@@ -148,6 +148,13 @@ RUN_NUMBER=""
 # Whether the current result block already carries its header, see write_csv_header
 CSV_HEADER_WRITTEN=false
 
+# Separator of the results file. Not a comma: borg spells its compression level
+# "--compression zstd,3", and recording that in a comma separated file needs quoting,
+# which every naive reader (awk -F"," and friends) then gets wrong. A semicolon needs
+# no quoting here, and is what a spreadsheet in a European locale expects anyway.
+# Whatever this is set to, it has to be a character no recorded value can contain
+CSV_SEPARATOR=";"
+
 # Programs that cannot reach every backend. Anything not listed here is assumed to
 # support all of them.
 #   bupstash: only speaks the bupstash protocol over ssh, no object storage
@@ -1873,7 +1880,7 @@ function get_source_size {
 
         # The label carries the backup id, so a block of several backups can be read
         # without knowing the order of ${GIT_TAGS}
-        local CSV_SOURCE_SIZE="source size(kb) ${backup_id},"
+        local CSV_SOURCE_SIZE="source size(kb) ${backup_id}${CSV_SEPARATOR}"
 
         size="$(du -cs --exclude=.git "${BACKUP_ROOT}" 2>/dev/null | tail -n 1 | awk '{print $1}')"
         [ -z "${size}" ] && size=0
@@ -1881,10 +1888,10 @@ function get_source_size {
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
-                        CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}n/a,"
+                        CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}n/a${CSV_SEPARATOR}"
                         continue
                 fi
-                CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}${size},"
+                CSV_SOURCE_SIZE="${CSV_SOURCE_SIZE}${size}${CSV_SEPARATOR}"
         done
         echo "${CSV_SOURCE_SIZE}" >> "${CSV_RESULT_FILE}"
 }
@@ -1895,11 +1902,11 @@ function get_repo_sizes {
         local backup_software
         local size
 
-        local CSV_SIZE="size(kb) ${backup_id},"
+        local CSV_SIZE="size(kb) ${backup_id}${CSV_SEPARATOR}"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
-                        CSV_SIZE="${CSV_SIZE}n/a,"
+                        CSV_SIZE="${CSV_SIZE}n/a${CSV_SEPARATOR}"
                         continue
                 fi
                 if [ "${backend}" == s3 ]; then
@@ -1911,7 +1918,7 @@ function get_repo_sizes {
                         size="$(run_on_target "${backend}" "du -cs \"${TARGET_ROOT}/${backup_software}/data\"" 2>/dev/null | tail -n 1 | awk '{print $1}')"
                 fi
                 [ -z "${size}" ] && size=0
-                CSV_SIZE="${CSV_SIZE}${size},"
+                CSV_SIZE="${CSV_SIZE}${size}${CSV_SEPARATOR}"
                 log "Repo size for ${backup_software}: ${size} kb. Backend: ${backend}." "NOTICE"
         done
         echo "${CSV_SIZE}" >> "${CSV_RESULT_FILE}"
@@ -2088,12 +2095,12 @@ function benchmark_backup_standard {
         local exec_result
         local outcome
 
-        local CSV_BACKUP_EXEC_TIME="backup(s) ${backup_id},"
+        local CSV_BACKUP_EXEC_TIME="backup(s) ${backup_id}${CSV_SEPARATOR}"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
                         log "Skipping ${backup_software} backup: it has no ${backend} backend." "NOTICE"
-                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}n/a,"
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}n/a${CSV_SEPARATOR}"
                         continue
                 fi
                 drop_caches "${backend}"
@@ -2105,12 +2112,12 @@ function benchmark_backup_standard {
                 exec_result=$?
                 exec_time=$((SECONDS - seconds_begin))
                 if [ "${exec_result}" -eq 0 ]; then
-                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time},"
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${exec_time}${CSV_SEPARATOR}"
                         log "It took ${exec_time} seconds to backup." "NOTICE"
                 else
                         # Never write the elapsed seconds of a backup that did not finish
                         outcome="$(get_exec_outcome "${exec_result}" "${backup_software}_bench")"
-                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${outcome},"
+                        CSV_BACKUP_EXEC_TIME="${CSV_BACKUP_EXEC_TIME}${outcome}${CSV_SEPARATOR}"
                         log "Backup of ${backup_software} did not complete after ${exec_time} seconds: ${outcome}." "CRITICAL"
                 fi
         done
@@ -2158,9 +2165,9 @@ function write_csv_header {
         [ -n "${RUN_NUMBER}" ] && run_info=" Run: ${RUN_NUMBER}/${RUNS},"
         echo "# $PROGRAM $PROGRAM_BUILD $(date) Backend: ${backend},${run_info} Profile: ${PROFILE}, Git: ${git}" >> "${CSV_RESULT_FILE}"
 
-        CSV_HEADER=","
+        CSV_HEADER="${CSV_SEPARATOR}"
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
-                CSV_HEADER="${CSV_HEADER}${backup_software} $(get_version_"${backup_software}"),"
+                CSV_HEADER="${CSV_HEADER}${backup_software} $(get_version_"${backup_software}")${CSV_SEPARATOR}"
         done
         echo "${CSV_HEADER}" >> "${CSV_RESULT_FILE}"
 
@@ -2168,16 +2175,16 @@ function write_csv_header {
         # it: in the best profile plakar gets nothing (its own default is already more
         # parallel), borg never gets a thread count, and duplicacy never gets a compression
         # option, since neither program has one
-        CSV_ARGUMENTS="arguments,"
+        CSV_ARGUMENTS="arguments${CSV_SEPARATOR}"
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
-                        CSV_ARGUMENTS="${CSV_ARGUMENTS}n/a,"
+                        CSV_ARGUMENTS="${CSV_ARGUMENTS}n/a${CSV_SEPARATOR}"
                         continue
                 fi
                 settings="$(get_backup_software_settings "${backup_software}")"
                 log "Settings handed to ${backup_software}: ${settings}" "NOTICE"
-                # Quoted, because options such as 'zstd,3' hold the CSV separator
-                CSV_ARGUMENTS="${CSV_ARGUMENTS}\"${settings}\","
+                # No quoting needed: ${CSV_SEPARATOR} is not a character these options hold
+                CSV_ARGUMENTS="${CSV_ARGUMENTS}${settings}${CSV_SEPARATOR}"
         done
         echo "${CSV_ARGUMENTS}" >> "${CSV_RESULT_FILE}"
 
@@ -2222,13 +2229,13 @@ function benchmark_restore_standard {
         local restored_path
         local result
 
-        local CSV_RESTORE_EXEC_TIME="restoration(s) ${backup_id},"
+        local CSV_RESTORE_EXEC_TIME="restoration(s) ${backup_id}${CSV_SEPARATOR}"
 
         # Restore the given backup and compare it with the current dataset
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
                         log "Skipping ${backup_software} restore: it has no ${backend} backend." "NOTICE"
-                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}n/a,"
+                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}n/a${CSV_SEPARATOR}"
                         continue
                 fi
                 drop_caches "${backend}"
@@ -2247,11 +2254,11 @@ function benchmark_restore_standard {
                         # Never write the elapsed seconds of a restore that did not finish,
                         # and don't compare a restore directory we know to be incomplete
                         outcome="$(get_exec_outcome "${exec_result}" "${backup_software}_restore")"
-                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${outcome},"
+                        CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${outcome}${CSV_SEPARATOR}"
                         log "Restore of ${backup_software} did not complete after ${exec_time} seconds: ${outcome}. Skipping the comparison." "CRITICAL"
                         continue
                 fi
-                CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${exec_time},"
+                CSV_RESTORE_EXEC_TIME="${CSV_RESTORE_EXEC_TIME}${exec_time}${CSV_SEPARATOR}"
                 log "It took ${exec_time} seconds to restore." "NOTICE"
 
                 # Some programs restore the full source path below the restore directory,
