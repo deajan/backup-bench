@@ -2257,17 +2257,35 @@ function benchmark_restore_standard {
 
 function benchmark_restore_git {
         local backend="${1}"
+        local tag_count
+        local tag_index
+        local tag
 
         log "Running git dataset restore benchmarks. Backend: ${backend}" "NOTICE"
 
         if [ ! -d "${BACKUP_ROOT}/.git" ]; then
                 log_quit "No git dataset found in [${BACKUP_ROOT}]. Please run --init-repos --git first." "CRITICAL"
         fi
+
+        # Restoring the snapshot that was just written is the easiest case a program can be
+        # given, since its chunks are the ones it wrote last. ${GIT_RESTORE_OFFSET} steps
+        # back from there, so the restore has to walk chunks shared with older snapshots
+        # and reach an index entry that is no longer the most recent one
+        tag_count="${#GIT_TAGS[@]}"
+        tag_index=$((tag_count - 1 - GIT_RESTORE_OFFSET))
+        if [ "${tag_index}" -lt 0 ]; then
+                log "GIT_RESTORE_OFFSET is ${GIT_RESTORE_OFFSET}, but only ${tag_count} tag(s) were backed up. Restoring the last snapshot instead." "WARN"
+                tag_index=$((tag_count - 1))
+        fi
+        tag="${GIT_TAGS[${tag_index}]}"
+        # Recomputed, so the message stays true when the offset above was clamped
+        log "Restoring the backup of tag ${tag}, $((tag_count - 1 - tag_index)) snapshot(s) back from the last one" "NOTICE"
+
         cd "${BACKUP_ROOT}/" || exit 127
-        # We restore the last backed up tag, so the dataset we compare against is the
-        # one that was checked out during the last backup
-        git checkout "${GIT_TAGS[-1]}" || log_quit "Cannot checkout git tag ${GIT_TAGS[-1]}" "CRITICAL"
-        benchmark_restore_standard "${backend}" "bkp-${GIT_TAGS[-1]}"
+        # The dataset has to hold the version we are about to restore, or the comparison
+        # would fail for the wrong reason
+        git checkout "${tag}" || log_quit "Cannot checkout git tag ${tag}" "CRITICAL"
+        benchmark_restore_standard "${backend}" "bkp-${tag}"
 }
 
 function benchmark_restore {
@@ -2555,6 +2573,9 @@ if [ -n "${RUNS_OVERRIDE}" ]; then
 fi
 if ! [[ "${RUNS}" =~ ^[1-9][0-9]*$ ]]; then
         log_quit "Invalid RUNS value [${RUNS}] in [${CONFIG_FILE}]. It must be a positive integer." "CRITICAL"
+fi
+if ! [[ "${GIT_RESTORE_OFFSET}" =~ ^[0-9]+$ ]]; then
+        log_quit "Invalid GIT_RESTORE_OFFSET value [${GIT_RESTORE_OFFSET}] in [${CONFIG_FILE}]. It must be zero or a positive integer." "CRITICAL"
 fi
 
 if [ "${BACKEND}" == s3 ] || [ "${cmd}" == "setup_s3_buckets" ]; then
