@@ -1867,10 +1867,13 @@ function get_source_size {
         # The value is repeated in every column, so a program's ratio is the division of
         # two cells of its own column
         local backend="${1:-local}"
+        local backup_id="${2}"
         local backup_software
         local size
 
-        local CSV_SOURCE_SIZE="source size(kb),"
+        # The label carries the backup id, so a block of several backups can be read
+        # without knowing the order of ${GIT_TAGS}
+        local CSV_SOURCE_SIZE="source size(kb) ${backup_id},"
 
         size="$(du -cs --exclude=.git "${BACKUP_ROOT}" 2>/dev/null | tail -n 1 | awk '{print $1}')"
         [ -z "${size}" ] && size=0
@@ -1888,10 +1891,11 @@ function get_source_size {
 
 function get_repo_sizes {
         local backend="${1:-local}"
+        local backup_id="${2}"
         local backup_software
         local size
 
-        local CSV_SIZE="size(kb),"
+        local CSV_SIZE="size(kb) ${backup_id},"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
@@ -2084,7 +2088,7 @@ function benchmark_backup_standard {
         local exec_result
         local outcome
 
-        local CSV_BACKUP_EXEC_TIME="backup(s),"
+        local CSV_BACKUP_EXEC_TIME="backup(s) ${backup_id},"
 
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
                 if ! supports_backend "${backup_software}" "${backend}"; then
@@ -2114,8 +2118,8 @@ function benchmark_backup_standard {
         echo "${CSV_BACKUP_EXEC_TIME}" >> "${CSV_RESULT_FILE}"
         # Recorded per backup, not once per run: with the git dataset every tag is a
         # different amount of data
-        get_source_size "${backend}"
-        get_repo_sizes "${backend}"
+        get_source_size "${backend}" "${backup_id}"
+        get_repo_sizes "${backend}" "${backup_id}"
 }
 
 function benchmark_backup_git {
@@ -2218,7 +2222,7 @@ function benchmark_restore_standard {
         local restored_path
         local result
 
-        local CSV_RESTORE_EXEC_TIME="restoration(s),"
+        local CSV_RESTORE_EXEC_TIME="restoration(s) ${backup_id},"
 
         # Restore the given backup and compare it with the current dataset
         for backup_software in "${BACKUP_SOFTWARES[@]}"; do
