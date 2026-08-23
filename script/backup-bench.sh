@@ -1035,7 +1035,13 @@ function set_borg_beta_repo_args {
         REPO_ARGS=()
         case "${backend}" in
                 s3)
-                export BORG_REPO="s3:${S3_ACCESS_KEY}:${S3_SECRET_KEY}@$(get_s3_url)/$(get_s3_bucket borg_beta)/data"
+                # The two substitutions are hoisted out of the export, so their exit
+                # status is not masked by the export builtin (SC2155)
+                local s3_url
+                local bucket
+                s3_url="$(get_s3_url)"
+                bucket="$(get_s3_bucket borg_beta)"
+                export BORG_REPO="s3:${S3_ACCESS_KEY}:${S3_SECRET_KEY}@${s3_url}/${bucket}/data"
                 ;;
                 sftp)
                 export BORG_REPO="${BORG_BETA_REPO_REMOTE}"
