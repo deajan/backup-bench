@@ -2505,7 +2505,8 @@ function usage {
         echo "DEBUG commands"
         echo "--setup-root-access               Manually setup root access (executed on target)"
         echo "--no-deps                         Do not install dependencies. This requires you to have them installed manually"
-        echo "--install-backup-programs         Locally install / upgrade backup programs into BIN_DIR. If launched with --remote, it will install only remote target required programs"
+        echo "--install-backup-programs         Install / upgrade the programs this machine needs into BIN_DIR."
+        echo "                                  Add --target-side when running it on the target"
         echo "--install-s3-client               Install the mc client used to create, empty and measure S3 buckets"
         echo "--versions                        Show versions of all installed backup programs"
         exit 128
@@ -2528,6 +2529,10 @@ ALL=false
 CONFIG_FILE="backup-bench.conf"
 NODEPS=false
 BACKUP_ID_TIMESTAMP=false
+# Which machine we are installing on. This is not a backend question: an sftp target
+# needs the programs that serve their own protocol plus rest-server, while an s3
+# target needs nothing installed at all
+TARGET_SIDE=false
 
 for i in "${@}"; do
         case "${i}" in
@@ -2596,6 +2601,9 @@ for i in "${@}"; do
                 ;;
                 --no-deps)
                 NODEPS=true
+                ;;
+                --target-side)
+                TARGET_SIDE=true
                 ;;
                 --install-backup-programs)
                 cmd="install_backup_programs"
@@ -2683,6 +2691,16 @@ if [ "${BACKEND}" == s3 ] || [ "${cmd}" == "setup_s3_buckets" ]; then
 fi
 
 self_setup
+
+# install_backup_programs takes which machine we are on, not a backend, so it is
+# dispatched here rather than through the generic backend convention below
+if [ "${cmd}" == "install_backup_programs" ]; then
+        if [ "${BACKEND}" != local ] && [ "${TARGET_SIDE}" != true ]; then
+                log "--backend has no effect on which programs get installed. Add --target-side when installing on the target." "WARN"
+        fi
+        install_backup_programs "${TARGET_SIDE}"
+        exit $?
+fi
 
 # --plan is checked before --all, so asking for a plan of the whole sweep prints it
 # instead of running it
