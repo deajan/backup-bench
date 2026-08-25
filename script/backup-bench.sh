@@ -1007,7 +1007,7 @@ function restore_borg {
 ###############################################################################
 
 function install_borg_beta {
-        local version="2.0.0b22"
+        local version="2.0.0b23"
         local url
 
         url="https://github.com/borgbackup/borg/releases/download/${version}/borg-linux-glibc239-x86_64-gh"
