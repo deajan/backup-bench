@@ -1890,11 +1890,45 @@ function restore_plakar {
 # Dataset, repositories and installation drivers
 ###############################################################################
 
+function reset_git_dataset {
+        # Puts the dataset back to a known state: the first tag we are about to back up,
+        # with nothing left over from an earlier cycle. Every backend and every run then
+        # starts from exactly the same content, whatever the previous one left behind, and
+        # the restore benchmark in particular leaves the tree on another tag
+        log "Resetting the git dataset to ${GIT_TAGS[0]}" "NOTICE"
+        git -C "${BACKUP_ROOT}" reset --hard --quiet
+        git -C "${BACKUP_ROOT}" clean -fdq
+        git -C "${BACKUP_ROOT}" checkout --quiet "${GIT_TAGS[0]}"
+        check_result $? "git dataset reset to ${GIT_TAGS[0]}" true
+}
+
 function setup_git_dataset {
         # We assume ${BACKUP_ROOT} is the git root, so we clone into its parent directory.
-        # This is the only case where backup-bench deletes and recreates ${BACKUP_ROOT}
+        #
+        # The dataset is only downloaded when it is not already there. Every backend and
+        # every run reuses the same clone, since re-cloning the linux kernel once per
+        # backend would cost more time and bandwidth than the benchmarks themselves, and
+        # a reset gives the same starting content as a fresh clone. --refresh-dataset
+        # forces the download when you do want a pristine one.
+        #
+        # A directory holding something other than our dataset is replaced, as before
         local git_parent_dir
+        local current_remote=""
+
         git_parent_dir="$(dirname "${BACKUP_ROOT:?}")"
+
+        if [ -d "${BACKUP_ROOT}/.git" ]; then
+                current_remote="$(git -C "${BACKUP_ROOT}" config --get remote.origin.url 2>/dev/null)"
+        fi
+        if [ "${REFRESH_DATASET}" != true ] && [ "${current_remote}" == "${GIT_DATASET_REPOSITORY}" ]; then
+                log "Reusing the git dataset already in ${BACKUP_ROOT}, use --refresh-dataset to download it again" "NOTICE"
+                reset_git_dataset
+                return 0
+        fi
+
+        if [ -n "${current_remote}" ] && [ "${current_remote}" != "${GIT_DATASET_REPOSITORY}" ]; then
+                log "The dataset in ${BACKUP_ROOT} was cloned from [${current_remote}], not from [${GIT_DATASET_REPOSITORY}]. Downloading it again." "NOTICE"
+        fi
 
         [ ! -d "${git_parent_dir}" ] && mkdir -p "${git_parent_dir}"
         cd "${git_parent_dir}" || exit 127
@@ -1903,6 +1937,7 @@ function setup_git_dataset {
         [ -d "${GIT_ROOT_DIRECTORY}" ] && rm -rf "${GIT_ROOT_DIRECTORY}"
         git clone "${GIT_DATASET_REPOSITORY}"
         check_result $? "git dataset clone" true
+        reset_git_dataset
 }
 
 function get_source_size {
@@ -2179,6 +2214,10 @@ function benchmark_backup_git {
                 log_quit "No git dataset found in [${BACKUP_ROOT}]. Please run --init-repos --git first." "CRITICAL"
         fi
         cd "${BACKUP_ROOT}" || exit 127
+
+        # Start every cycle from the same content, whatever the previous run or the
+        # restore benchmark left checked out
+        reset_git_dataset
 
         # Back up one kernel version after another, so every program sees the same
         # sequence of changes and deduplication can be compared
@@ -2530,7 +2569,8 @@ function usage {
         echo "                                  Repositories must be cleared and reinitialized between two"
         echo "                                  profiles, or they would deduplicate against each other"
         echo "--runs=N                          How many cycles --repeat-benchmarks and --all run (defaults to RUNS)"
-        echo "--git                             Use git dataset (multiple version benchmark). WARNING: deletes and re-clones BACKUP_ROOT"
+        echo "--git                             Use git dataset (multiple version benchmark). Downloaded once, then reused"
+        echo "--refresh-dataset                 Download the git dataset again even if it is already there"
         echo "--backup-id-timestamp             Add a timestamp as backup id when not using --git. If this option is disabled, backupid will be \"defaultid\". There cannot be multiple backups with the same id"
         echo ""
         echo "After some benchmarks, you might want to remove earlier data from repositories"
@@ -2567,6 +2607,9 @@ BACKUP_ID_TIMESTAMP=false
 # needs the programs that serve their own protocol plus rest-server, while an s3
 # target needs nothing installed at all
 TARGET_SIDE=false
+
+# Whether to download the git dataset again even when it is already there
+REFRESH_DATASET=false
 
 for i in "${@}"; do
         case "${i}" in
@@ -2638,6 +2681,9 @@ for i in "${@}"; do
                 ;;
                 --target-side)
                 TARGET_SIDE=true
+                ;;
+                --refresh-dataset)
+                REFRESH_DATASET=true
                 ;;
                 --install-backup-programs)
                 cmd="install_backup_programs"
