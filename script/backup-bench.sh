@@ -73,7 +73,7 @@
 # on their plaintext: a second profile would reuse the first one's chunks instead
 # of recompressing them, making both its timings and its size meaningless. The
 # profile a repository was initialized with is recorded, and benchmarking a
-# repository built by another profile is refused, see check_repository_profile().
+# repository built by another profile is refused, see check_repositories_ready().
 #
 # KEEPING THE COMPARISON FAIR
 #
@@ -350,16 +350,25 @@ function forget_repository_profile {
         rm -f "$(get_profile_marker_file "${backend}")"
 }
 
-function check_repository_profile {
-        # Two profiles must never share a repository: chunks are deduplicated on their
-        # plaintext, so the second profile would reuse the first one's chunks instead of
-        # recompressing them, and both its timings and its size would be meaningless
+function check_repositories_ready {
+        # Two things have to be true before we measure anything, and neither is cosmetic.
+        #
+        # The repositories of this backend must exist. Benchmarking ones that were never
+        # initialized for it is how duplicacy ends up talking sftp during a local run: it
+        # has no repository argument and reads its storage from the preferences the last
+        # --init-repos wrote, whichever backend that one was for.
+        #
+        # And they must have been built by the profile we are about to use, since two
+        # profiles sharing a repository would deduplicate against each other, which makes
+        # both their timings and their sizes meaningless
         local backend="${1}"
         local marker
         local recorded
 
         marker="$(get_profile_marker_file "${backend}")"
-        [ ! -f "${marker}" ] && return 0
+        if [ ! -f "${marker}" ]; then
+                log_quit "The ${backend} repositories were never initialized, or have been cleared since. Run --init-repos --backend=${backend} first." "CRITICAL"
+        fi
         recorded="$(cat "${marker}")"
         if [ "${recorded}" != "${PROFILE}" ]; then
                 log_quit "The ${backend} repositories were initialized with the '${recorded}' profile, but this run uses '${PROFILE}'. Run --clear-repos and --init-repos first, or both profiles would deduplicate against each other." "CRITICAL"
@@ -1645,6 +1654,29 @@ function clear_duplicacy_repository {
         rm -rf "${DUPLICACY_RESTORE_PREF_DIR:?}"
 }
 
+function check_duplicacy_preferences {
+        # duplicacy is the only program here with no repository argument: it reads its
+        # storage from the '.duplicacy/preferences' file the last init wrote. That file is
+        # the one piece of per backend state a backup can silently disagree with, so we
+        # make sure it points where this run expects before measuring anything.
+        # The expected URL is matched with its surrounding quotes, because the local path
+        # is also a substring of the sftp URL for the same repository
+        local backend="${1}"
+        local preferences="${DUPLICACY_PREF_DIR}/.duplicacy/preferences"
+        local expected
+
+        expected="$(get_duplicacy_storage_url "${backend}")"
+        if [ ! -f "${preferences}" ]; then
+                log "No duplicacy preferences in [${preferences}]. Run --init-repos --backend=${backend} first." "CRITICAL"
+                return 1
+        fi
+        if ! grep -qF "\"${expected}\"" "${preferences}"; then
+                log "The duplicacy preferences in [${preferences}] do not point at [${expected}], so they were written for another backend. Run --clear-repos and --init-repos --backend=${backend}." "CRITICAL"
+                return 1
+        fi
+        return 0
+}
+
 function backup_duplicacy {
         local backend="${1}"
         local backup_id="${2}"
@@ -1652,6 +1684,8 @@ function backup_duplicacy {
         log "Launching duplicacy backup. Backend: ${backend}. Profile: ${PROFILE}." "NOTICE"
         # duplicacy works on the '.duplicacy' directory found in the current directory
         cd "${DUPLICACY_PREF_DIR}" || return 127
+
+        check_duplicacy_preferences "${backend}" || return 1
 
         set_duplicacy_tuning_args
         "${BIN_DIR}/duplicacy" backup -t "${backup_id}" -stats "${TUNING_ARGS[@]}" >> "${LOG_DIR}/${PROGRAM}.duplicacy.log" 2>&1
@@ -2044,7 +2078,7 @@ function init_repositories {
                 fi
                 init_"${backup_software}"_repository "${backend}"
         done
-        # Remember which profile these repositories belong to, see check_repository_profile
+        # Remember which profile these repositories belong to, see check_repositories_ready
         record_repository_profile "${backend}"
         log "Initialization done." "NOTICE"
 }
@@ -2207,7 +2241,7 @@ function benchmark_backup {
         local backup_id_timestamp="${3:-false}"
         local backup_id
 
-        check_repository_profile "${backend}"
+        check_repositories_ready "${backend}"
 
         # A backup always opens its own block, so repeated runs each get their own header
         write_csv_header "${backend}" "${git}"
@@ -2327,7 +2361,7 @@ function benchmark_restore {
         local backup_id_timestamp="${3:-false}"
         local backup_id
 
-        check_repository_profile "${backend}"
+        check_repositories_ready "${backend}"
 
         # Only when we run without a backup before us, so --benchmarks keeps writing one
         # header for the two of us while --benchmark-restore still gets its context
