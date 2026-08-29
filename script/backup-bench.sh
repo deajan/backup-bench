@@ -219,6 +219,13 @@ function check_snapshot_id {
                 log "Cannot find any ${program} snapshot for backup id [${backup_id}]" "CRITICAL"
                 return 1
         fi
+        # An id holding whitespace means the lookup captured more than the id itself:
+        # a listing header, or a second snapshot. Passing that on gets it rejected by
+        # the program with a confusing message, so we say what really happened
+        if [ "${id}" != "${id//[[:space:]]/}" ]; then
+                log "The ${program} snapshot lookup for [${backup_id}] returned more than one id, or an id with a listing header glued to it: [${id}]" "CRITICAL"
+                return 1
+        fi
         log "Using ${program} snapshot [${id}]" "NOTICE"
         return 0
 }
@@ -1278,7 +1285,11 @@ function restore_kopia {
         log "Launching kopia restore. Backend: ${backend}." "NOTICE"
         connect_kopia_repository "${backend}"
 
-        id="$("${BIN_DIR}/kopia" snapshot list --tags "BACKUPID:${backup_id}" | awk '{print $4}')"
+        # kopia prints a source header line before the snapshots of that source, so its
+        # fourth field is empty there. Taking the field by position put that empty line
+        # in front of the id, and kopia then answered "no snapshots contain data for"
+        # the id with a newline glued to it. We pick the root object id by shape instead
+        id="$("${BIN_DIR}/kopia" snapshot list --tags "BACKUPID:${backup_id}" | grep -oE "\bk[0-9a-f]{16,}\b" | tail -n 1)"
         check_snapshot_id "${id}" kopia "${backup_id}" || return 1
         set_kopia_tuning_args
         "${BIN_DIR}/kopia" restore "${TUNING_ARGS[@]}" --skip-owners --skip-permissions "${id}" "${RESTORE_DIR}" >> "${LOG_DIR}/${PROGRAM}.kopia.log" 2>&1
@@ -2098,7 +2109,7 @@ function init_repositories {
         # The dataset has to exist before we initialize the repositories, because
         # duplicacy needs its repository path to exist at init time
         if [ "${git}" == true ]; then
-                # This deletes and re-clones ${BACKUP_ROOT}
+                # Prepares the dataset: downloads it if needed, then resets it to the first tag
                 setup_git_dataset
         fi
         if [ ! -d "${BACKUP_ROOT}" ]; then
@@ -2445,7 +2456,11 @@ function plan_benchmarks {
 
         if [ "${git}" == true ]; then
                 tag_count="${#GIT_TAGS[@]}"
-                log "Dataset:      ${BACKUP_ROOT}, deleted and re-cloned once from ${GIT_DATASET_REPOSITORY}" "NOTICE"
+                if [ -d "${BACKUP_ROOT}/.git" ] && [ "${REFRESH_DATASET}" != true ]; then
+                        log "Dataset:      ${BACKUP_ROOT}, already there so it is reused, reset to ${GIT_TAGS[0]} before every cycle" "NOTICE"
+                else
+                        log "Dataset:      ${BACKUP_ROOT}, downloaded once from ${GIT_DATASET_REPOSITORY}, then reset to ${GIT_TAGS[0]} before every cycle" "NOTICE"
+                fi
                 log "              ${tag_count} tag(s) backed up in this order: ${GIT_TAGS[*]}" "NOTICE"
         else
                 log "Dataset:      ${BACKUP_ROOT}, used as is and never modified" "NOTICE"
