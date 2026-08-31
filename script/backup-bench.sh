@@ -137,10 +137,10 @@
 
 PROGRAM="backup-bench"
 AUTHOR="(C) 2022-2026 by Orsiris de Jong"
-PROGRAM_BUILD=2026081804
+PROGRAM_BUILD=2026083101
 
 # Configuration files older than this one lack settings this script needs
-MINIMUM_CONF_VERSION=2026081804
+MINIMUM_CONF_VERSION=2026083101
 
 # Set by repeat_benchmarks so every result block says which run produced it
 RUN_NUMBER=""
